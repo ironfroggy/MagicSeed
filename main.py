@@ -10,6 +10,8 @@ from ppb.events import KeyPressed, KeyReleased
 from ppb.systemslib import System
 
 
+# Constants
+
 COLOR_GREEN = 1
 COLOR_RED = 2
 COLOR_YELLOW = 3
@@ -22,6 +24,8 @@ COLORS = (
     COLOR_BLUE,
     COLOR_WHITE,
 )
+
+# Images loaded for each color
 SEED_IMAGES = {
     COLOR_GREEN: ppb.Image("resources/seed3.png"),
     COLOR_RED: ppb.Image("resources/seed1.png"),
@@ -30,6 +34,66 @@ SEED_IMAGES = {
     COLOR_WHITE: ppb.Image("resources/seed4.png"),
 }
 
+class Seed(ppb.BaseSprite):
+    position = ppb.Vector(0, 0)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.x = int(self.position.x)
+        self.y = int(self.position.y)
+        self.empty = False
+
+
+def GreenSeed(*args, **kwargs):
+    kwargs['color'] = COLOR_GREEN
+    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    return Seed(*args, **kwargs)
+
+def RedSeed(*args, **kwargs):
+    kwargs['color'] = COLOR_RED
+    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    return Seed(*args, **kwargs)
+
+def YellowSeed(*args, **kwargs):
+    kwargs['color'] = COLOR_YELLOW
+    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    return Seed(*args, **kwargs)
+
+def BlueSeed(*args, **kwargs):
+    kwargs['color'] = COLOR_BLUE
+    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    return Seed(*args, **kwargs)
+
+def WhiteSeed(*args, **kwargs):
+    kwargs['color'] = COLOR_WHITE
+    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    return Seed(*args, **kwargs)
+
+
+SEEDS = (
+    GreenSeed,
+    RedSeed,
+    YellowSeed,
+    BlueSeed,
+    WhiteSeed,
+)
+
+GRID = {}
+
+
+# Easing functions
+
+def linear(t):
+    return t
+
+def in_quad(t):
+    return t*t
+
+def out_quad(t):
+    return t * (2 - t)
+
+
+# Tweening
 
 def flerp(f1, f2, t):
     return f1 + t * (f2 - f1)
@@ -42,7 +106,26 @@ def vlerp(v1, v2, t):
     )
 
 
+@dataclass
+class Tween:
+    start_time: float
+    end_time: float
+    obj: object
+    attr: str
+    start_value: object
+    end_value: object
+    easing: types.FunctionType = linear
+
+
 class Tweener:
+    """A controller of object transitions over time.
+    
+    A Tweener has to be added to a scene in order to work! After creating it,
+    make multiple calls to tween() to set transitions of object members over
+    time. Callbacks may be added to the Tweener with when_done() and all
+    callbacks will be invoked when the final transition ends.
+    """
+
     size = 0
 
     def __init__(self):
@@ -100,26 +183,7 @@ class Tweener:
                 func()
 
 
-def linear(t):
-    return t
-
-def in_quad(t):
-    return t*t
-
-def out_quad(t):
-    return t * (2 - t)
-
-
-@dataclass
-class Tween:
-    start_time: float
-    end_time: float
-    obj: object
-    attr: str
-    start_value: object
-    end_value: object
-    easing: types.FunctionType = linear
-
+# Event classes
 
 @dataclass
 class MovementStart:
@@ -129,31 +193,23 @@ class MovementStart:
 class MovementDone:
     scene: object
 
-
 @dataclass
 class TweeningDone:
     tweener: Tweener
 
+@dataclass
+class CellEmptied:
+    seed: Seed
+    x: int
+    y: int
+
 
 class TickSystem(System):
     callbacks = []
-    tweens = []
     
     @classmethod
     def call_later(self, seconds, func):
         self.callbacks.append((time() + seconds, func))
-
-    @classmethod
-    def transition(self, entity, attr, end_value, duration):
-        start_time = time()
-        self.tweens.append(Tween(
-            start_time=start_time,
-            end_time=start_time + duration,
-            obj=entity,
-            attr=attr,
-            start_value=getattr(entity, attr),
-            end_value=end_value,
-        ))
 
     @classmethod
     def on_idle(self, update, signal):
@@ -165,19 +221,6 @@ class TickSystem(System):
                 clear.append(i)
         for i in reversed(clear):
             del self.callbacks[i]
-        
-        clear = []
-        for i, tween in enumerate(self.tweens):
-            tr = (t - tween.start_time) / (tween.end_time - tween.start_time)
-            if isinstance(tween.end_value, ppb.Vector):
-                value = vlerp(tween.start_value, tween.end_value, min(1.0, tr))
-            else:
-                value = flerp(tween.start_value, tween.end_value, min(1.0, tr))
-            setattr(tween.obj, tween.attr, value)
-            if tr >= 1.0:
-                clear.append(i)
-        for i in reversed(clear):
-            del self.tweens[i]
     
     last_click = None
 
@@ -248,59 +291,6 @@ class Timer:
                     self.end_time = None        
 
 
-class Seed(ppb.BaseSprite):
-    position = ppb.Vector(0, 0)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.x = int(self.position.x)
-        self.y = int(self.position.y)
-        self.empty = False
-
-
-def GreenSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_GREEN
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
-    return Seed(*args, **kwargs)
-
-def RedSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_RED
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
-    return Seed(*args, **kwargs)
-
-def YellowSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_YELLOW
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
-    return Seed(*args, **kwargs)
-
-def BlueSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_BLUE
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
-    return Seed(*args, **kwargs)
-
-def WhiteSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_WHITE
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
-    return Seed(*args, **kwargs)
-
-
-SEEDS = (
-    GreenSeed,
-    RedSeed,
-    YellowSeed,
-    BlueSeed,
-    WhiteSeed,
-)
-
-GRID = {}
-
-
-@dataclass
-class CellEmptied:
-    seed: Seed
-    x: int
-    y: int
-
 @dataclass
 class Grid:
     scene: ppb.BaseScene = None
@@ -326,7 +316,10 @@ class Grid:
         seed.image = SEED_IMAGES[color]
         seed.size = 0.0
         seed.position = ppb.Vector(ev.x, ev.y)
-        TickSystem.transition(seed, 'size', 1.0, 0.25)
+
+        t = Tweener()
+        self.scene.add(t)
+        t.tween(seed, 'size', 1.0, 0.25)
 
 
     def find_matches(self, signal):
