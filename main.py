@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 from random import choice, random
 from time import time
 import types
@@ -119,6 +120,10 @@ class Tween:
     end_value: object
     easing: types.FunctionType = linear
 
+
+@dataclass
+class MovementStart:
+    scene: object
 
 @dataclass
 class MovementDone:
@@ -356,6 +361,7 @@ class Grid:
                     self.dirty = True
         
         if tweener.is_tweening:
+            signal(MovementStart(self.scene))
             @tweener.when_done
             def on_tweening_done():
                 for seed in seeds:
@@ -371,6 +377,24 @@ class Player(ppb.sprites.Sprite):
     size = 4
 
 
+class Monster(ppb.sprites.Sprite):
+    image = ppb.Image("resources/MONSTER_SNAKE.png")
+    size = 4
+    shake = False
+
+    def on_idle(self, ev, signal):
+        if self.shake:
+            y = math.sin(time() * 50) / 25
+            self.position = ppb.Vector(5, y)
+    
+    def on_movement_start(self, ev, signal):
+        self.shake = True
+        def stop():
+            self.shake = False
+            self.position = ppb.Vector(5, 0)
+        TickSystem.call_later(0.5, stop)
+
+
 def setup(scene):
     for x in range(-2, 3):
         for y in range(-2, 3):
@@ -382,11 +406,8 @@ def setup(scene):
     player = Player(position=ppb.Vector(-5, 0))
     scene.add(player)
 
-    scene.add(ppb.sprites.Sprite(
-        position=ppb.Vector(5, 0),
-        image=ppb.Image("resources/MONSTER_SNAKE.png"),
-        size=4,
-    ))
+    snake = Monster(position=ppb.Vector(5, 0))
+    scene.add(snake)
 
     scene.add(Grid())
 
