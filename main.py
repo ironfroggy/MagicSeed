@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from random import choice, random
 from time import time
+import types
 
 import ppb
 from ppb import keycodes
@@ -27,15 +28,6 @@ SEED_IMAGES = {
     COLOR_BLUE: ppb.Image("resources/seed5.png"),
     COLOR_WHITE: ppb.Image("resources/seed4.png"),
 }
-SEEDS = (
-    GreenSeed,
-    RedSeed,
-    YellowSeed,
-    BlueSeed,
-    WhiteSeed,
-)
-
-GRID = {}
 
 
 def flerp(f1, f2, t):
@@ -65,10 +57,10 @@ class Tweener:
     def is_tweening(self):
         return bool(self.tweens)
 
-    def tween(self, entity, attr, end_value, duration):
+    def tween(self, entity, attr, end_value, duration, **kwargs):
         assert not self.done
         self.used = True
-        start_time = time()
+        start_time = time() + kwargs.pop('delay', 0)
         self.tweens.append(Tween(
             start_time=start_time,
             end_time=start_time + duration,
@@ -76,6 +68,7 @@ class Tweener:
             attr=attr,
             start_value=getattr(entity, attr),
             end_value=end_value,
+            **kwargs,
         ))
     
     def when_done(self, func):
@@ -87,10 +80,12 @@ class Tweener:
 
         for i, tween in enumerate(self.tweens):
             tr = (t - tween.start_time) / (tween.end_time - tween.start_time)
+            tr = min(1.0, max(0.0, tr))
+            tr = tween.easing(tr)
             if isinstance(tween.end_value, ppb.Vector):
-                value = vlerp(tween.start_value, tween.end_value, min(1.0, tr))
+                value = vlerp(tween.start_value, tween.end_value, tr)
             else:
-                value = flerp(tween.start_value, tween.end_value, min(1.0, tr))
+                value = flerp(tween.start_value, tween.end_value, tr)
             setattr(tween.obj, tween.attr, value)
             if tr >= 1.0:
                 clear.append(i)
@@ -104,6 +99,16 @@ class Tweener:
                 func()
 
 
+def linear(t):
+    return t
+
+def in_quad(t):
+    return t*t
+
+def out_quad(t):
+    return t * (2 - t)
+
+
 @dataclass
 class Tween:
     start_time: float
@@ -112,6 +117,7 @@ class Tween:
     attr: str
     start_value: object
     end_value: object
+    easing: types.FunctionType = linear
 
 
 @dataclass
@@ -273,6 +279,17 @@ def WhiteSeed(*args, **kwargs):
     return Seed(*args, **kwargs)
 
 
+SEEDS = (
+    GreenSeed,
+    RedSeed,
+    YellowSeed,
+    BlueSeed,
+    WhiteSeed,
+)
+
+GRID = {}
+
+
 @dataclass
 class CellEmptied:
     seed: Seed
@@ -318,9 +335,11 @@ class Grid:
                 seed3 = GRID.get((x, y + 2))
                 if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
                     for seed in (seed1, seed2, seed3):
+                        i = len(seeds)
                         seeds.add(seed)
-                        tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5)
-                        tweener.tween(seed, 'size', 0, 0.25 + random()*0.5)
+                        
+                        tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5, easing=out_quad, delay=0.2 * i)
+                        tweener.tween(seed, 'size', 0, 0.25 + random()*0.5, easing=in_quad, delay=0.2 * i)
 
                     self.dirty = True
                 
@@ -328,9 +347,11 @@ class Grid:
                 seed3 = GRID.get((x + 2, y))
                 if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
                     for seed in (seed1, seed2, seed3):
+                        i = len(seeds)
                         seeds.add(seed)
-                        tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5)
-                        tweener.tween(seed, 'size', 0, 0.25 + random()*0.5)
+                        
+                        tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5, easing=out_quad, delay=0.2 * i)
+                        tweener.tween(seed, 'size', 0, 0.25 + random()*0.5, easing=in_quad, delay=0.2 * i)
 
                     self.dirty = True
         
