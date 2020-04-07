@@ -41,7 +41,33 @@ class Seed(ppb.BaseSprite):
         super().__init__(*args, **kwargs)
         self.x = int(self.position.x)
         self.y = int(self.position.y)
-        self.empty = False
+        self.is_free = False
+    
+    def free(self):
+        try:
+            del GRID[self.x, self.y]
+        except KeyError:
+            pass
+        self.x = None
+        self.y = None
+        self.is_free = True
+
+    def drop(self, scene, x, y):
+        self.x = x
+        self.y = y
+
+        color = choice(COLORS)
+        self.color = color
+        self.image = SEED_IMAGES[color]
+        self.size = 0
+        self.position = ppb.Vector(self.x, self.y + 4)
+
+        GRID[x, y] = self
+
+        t = Tweener()
+        scene.add(t)
+        t.tween(self, 'size', 1.0, 0.25, delay=0.5)
+        t.tween(self, 'position', ppb.Vector(self.x, self.y), 0.5, delay=0.25, easing=in_quad)
 
 
 def GreenSeed(*args, **kwargs):
@@ -124,6 +150,12 @@ class Tweener:
     make multiple calls to tween() to set transitions of object members over
     time. Callbacks may be added to the Tweener with when_done() and all
     callbacks will be invoked when the final transition ends.
+
+    Example:
+
+        t = Tweener()
+        t.tween(bomb, 'position', v_target, 1.0)
+        t.when_done(play_sound("BOOM"))
     """
 
     size = 0
@@ -295,7 +327,6 @@ class Timer:
 class Grid:
     scene: ppb.BaseScene = None
     size: float = 0
-    dirty: bool = True
 
     def __hash__(self):
         return hash(id(self))
@@ -306,7 +337,6 @@ class Grid:
         self.find_matches(signal)
 
     def on_movement_done(self, ev, signal):
-        self.dirty = True
         self.find_matches(signal)
 
     def on_cell_emptied(self, ev, signal):
@@ -325,40 +355,96 @@ class Grid:
     def find_matches(self, signal):
         tweener = Tweener()
         seeds = set()
+
         for x in range(-2, 3):
             for y in range(-2, 3):
                 seed1 = GRID.get((x, y))
 
+                # Match UP along a column
                 seed2 = GRID.get((x, y + 1))
                 seed3 = GRID.get((x, y + 2))
+                seed4 = GRID.get((x, y + 3))
+                seed5 = GRID.get((x, y + 4))
+                # Find a simple 3-match
                 if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
                     for seed in (seed1, seed2, seed3):
-                        i = len(seeds)
+                        # seed.free()
                         seeds.add(seed)
-                        
-                        tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5, easing=out_quad, delay=0.2 * i)
-                        tweener.tween(seed, 'size', 0, 0.25 + random()*0.5, easing=in_quad, delay=0.2 * i)
-
-                    self.dirty = True
+                    # Extend to a 4-match...
+                    if seed4 and seed3.color == seed4.color:
+                        # seed4.free()
+                        seeds.add(seed4)
+                        # Extend to a 5-match...
+                        if seed5 and seed4.color == seed5.color:
+                            # seed5.free()
+                            seeds.add(seed5)
                 
+                # Match RIGHT along a row
                 seed2 = GRID.get((x + 1, y))
                 seed3 = GRID.get((x + 2, y))
+                seed4 = GRID.get((x + 3, y))
+                seed5 = GRID.get((x + 4, y))
+                # Find a simple 3-match
                 if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
                     for seed in (seed1, seed2, seed3):
-                        i = len(seeds)
+                        # seed.free()
                         seeds.add(seed)
-                        
-                        tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5, easing=out_quad, delay=0.2 * i)
-                        tweener.tween(seed, 'size', 0, 0.25 + random()*0.5, easing=in_quad, delay=0.2 * i)
+                    # Extend to a 4-match...
+                    if seed4 and seed3.color == seed4.color:
+                        # seed4.free()
+                        seeds.add(seed4)
+                        # Extend to a 5-match...
+                        if seed5 and seed4.color == seed5.color:
+                            # seed5.free()
+                            seeds.add(seed5)
 
-                    self.dirty = True
-        
-        if tweener.is_tweening:
+        if seeds:
+            delay = 0.5
+            for seed in seeds:
+                seed.free()
+                tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5, easing=out_quad, delay=1.0 - delay)
+                tweener.tween(seed, 'size', 0, 0.25 + random()*0.5, easing=in_quad, delay=1.0 - delay)
+                delay *= 0.5
+
             signal(MovementStart(self.scene))
             @tweener.when_done
             def on_tweening_done():
-                for seed in seeds:
-                    signal(CellEmptied(seed, seed.x, seed.y))
+                tweener = Tweener()
+                self.scene.add(tweener)
+                # for seed in seeds:
+                #     seed.free()
+                    # signal(CellEmptied(seed, seed.x, seed.y))
+
+                for x in range(-2, 3):
+
+                    # Collect all the seeds in a column and drop them
+                    column = []
+                    for y in range(-2, 3):
+                        seed = GRID.get(x, y)
+                        if seed:
+                            column.append(seed)
+                    if len(column) < 5:
+                        gap = 0
+                        for y in range(-2, 3):
+                            if (x, y) not in GRID:
+                                gap += 1
+                                # print("gap", x, y)
+                            else:
+                                if gap > 0:
+                                    seed = GRID[x, y]
+                                    del GRID[x, y]
+                                    seed.y -= gap
+                                    # gap = 0
+                                    # xassert (seed.x, seed.y) in GRID, (seed.x, seed.y)
+                                    GRID[seed.x, seed.y] = seed
+                                    tweener.tween(seed, 'position', seed.position + ppb.Vector(0, 0.25), 0.25)
+                                    tweener.tween(seed, 'position', ppb.Vector(seed.x, seed.y), 0.25, delay=0.5)
+
+                    for i in range(gap):
+                        if seeds:
+                            seed = seeds.pop()
+                            seed.drop(self.scene, x, 2 - i)
+
                 TickSystem.call_later(1, lambda: signal(MovementDone(self.scene)))
 
             tweener.on_tweening_done = on_tweening_done 
