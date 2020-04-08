@@ -9,6 +9,9 @@ from ppb import keycodes
 from ppb.events import KeyPressed, KeyReleased
 from ppb.systemslib import System
 
+import easing
+from tweening import Tweener
+
 
 # Constants
 
@@ -34,6 +37,13 @@ SEED_IMAGES = {
     COLOR_WHITE: ppb.Image("resources/seed4.png"),
 }
 
+
+def dist(v1, v2):
+    a = abs(v1.x - v2.x) ** 2
+    b = abs(v1.y - v2.y) ** 2
+    return math.sqrt(a + b)
+
+
 class Seed(ppb.BaseSprite):
     position = ppb.Vector(0, 0)
 
@@ -52,7 +62,7 @@ class Seed(ppb.BaseSprite):
         self.y = None
         self.is_free = True
 
-    def drop(self, scene, x, y):
+    def drop(self, t, x, y):
         self.x = x
         self.y = y
 
@@ -64,10 +74,8 @@ class Seed(ppb.BaseSprite):
 
         GRID[x, y] = self
 
-        t = Tweener()
-        scene.add(t)
         t.tween(self, 'size', 1.0, 0.25, delay=0.5)
-        t.tween(self, 'position', ppb.Vector(self.x, self.y), 0.5, delay=0.25, easing=in_quad)
+        t.tween(self, 'position', ppb.Vector(self.x, self.y), 1 + random()*0.25, easing='out_bounce')
 
 
 def GreenSeed(*args, **kwargs):
@@ -107,114 +115,6 @@ SEEDS = (
 GRID = {}
 
 
-# Easing functions
-
-def linear(t):
-    return t
-
-def in_quad(t):
-    return t*t
-
-def out_quad(t):
-    return t * (2 - t)
-
-
-# Tweening
-
-def flerp(f1, f2, t):
-    return f1 + t * (f2 - f1)
-
-
-def vlerp(v1, v2, t):
-    return ppb.Vector(
-        v1.x + t * (v2.x - v1.x),
-        v1.y + t * (v2.y - v1.y),
-    )
-
-
-@dataclass
-class Tween:
-    start_time: float
-    end_time: float
-    obj: object
-    attr: str
-    start_value: object
-    end_value: object
-    easing: types.FunctionType = linear
-
-
-class Tweener:
-    """A controller of object transitions over time.
-    
-    A Tweener has to be added to a scene in order to work! After creating it,
-    make multiple calls to tween() to set transitions of object members over
-    time. Callbacks may be added to the Tweener with when_done() and all
-    callbacks will be invoked when the final transition ends.
-
-    Example:
-
-        t = Tweener()
-        t.tween(bomb, 'position', v_target, 1.0)
-        t.when_done(play_sound("BOOM"))
-    """
-
-    size = 0
-
-    def __init__(self):
-        self.tweens = []
-        self.callbacks = []
-        self.used = False
-        self.done = False
-
-    def __hash__(self):
-        return hash(id(self))
-
-    @property
-    def is_tweening(self):
-        return bool(self.tweens)
-
-    def tween(self, entity, attr, end_value, duration, **kwargs):
-        assert not self.done
-        self.used = True
-        start_time = time() + kwargs.pop('delay', 0)
-        self.tweens.append(Tween(
-            start_time=start_time,
-            end_time=start_time + duration,
-            obj=entity,
-            attr=attr,
-            start_value=getattr(entity, attr),
-            end_value=end_value,
-            **kwargs,
-        ))
-    
-    def when_done(self, func):
-        self.callbacks.append(func)
-
-    def on_idle(self, update, signal):
-        t = time()
-        clear = []
-
-        for i, tween in enumerate(self.tweens):
-            tr = (t - tween.start_time) / (tween.end_time - tween.start_time)
-            tr = min(1.0, max(0.0, tr))
-            tr = tween.easing(tr)
-            if isinstance(tween.end_value, ppb.Vector):
-                value = vlerp(tween.start_value, tween.end_value, tr)
-            else:
-                value = flerp(tween.start_value, tween.end_value, tr)
-            setattr(tween.obj, tween.attr, value)
-            if tr >= 1.0:
-                clear.append(i)
-
-        for i in reversed(clear):
-            del self.tweens[i]
-        
-        if self.used and not self.tweens and not self.done:
-            self.done = True
-            for func in self.callbacks:
-                func()
-
-
 # Event classes
 
 @dataclass
@@ -228,12 +128,6 @@ class MovementDone:
 @dataclass
 class TweeningDone:
     tweener: Tweener
-
-@dataclass
-class CellEmptied:
-    seed: Seed
-    x: int
-    y: int
 
 
 class TickSystem(System):
@@ -339,19 +233,6 @@ class Grid:
     def on_movement_done(self, ev, signal):
         self.find_matches(signal)
 
-    def on_cell_emptied(self, ev, signal):
-        color = choice(COLORS)
-        seed = ev.seed
-        seed.color = color
-        seed.image = SEED_IMAGES[color]
-        seed.size = 0.0
-        seed.position = ppb.Vector(ev.x, ev.y)
-
-        t = Tweener()
-        self.scene.add(t)
-        t.tween(seed, 'size', 1.0, 0.25)
-
-
     def find_matches(self, signal):
         tweener = Tweener()
         seeds = set()
@@ -368,15 +249,12 @@ class Grid:
                 # Find a simple 3-match
                 if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
                     for seed in (seed1, seed2, seed3):
-                        # seed.free()
                         seeds.add(seed)
                     # Extend to a 4-match...
                     if seed4 and seed3.color == seed4.color:
-                        # seed4.free()
                         seeds.add(seed4)
                         # Extend to a 5-match...
                         if seed5 and seed4.color == seed5.color:
-                            # seed5.free()
                             seeds.add(seed5)
                 
                 # Match RIGHT along a row
@@ -387,33 +265,33 @@ class Grid:
                 # Find a simple 3-match
                 if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
                     for seed in (seed1, seed2, seed3):
-                        # seed.free()
                         seeds.add(seed)
                     # Extend to a 4-match...
                     if seed4 and seed3.color == seed4.color:
-                        # seed4.free()
                         seeds.add(seed4)
                         # Extend to a 5-match...
                         if seed5 and seed4.color == seed5.color:
-                            # seed5.free()
                             seeds.add(seed5)
 
         if seeds:
             delay = 0.5
+            dest = ppb.Vector(5, 0)
             for seed in seeds:
                 seed.free()
-                tweener.tween(seed, 'position', ppb.Vector(5, 0), 0.25 + random()*0.5, easing=out_quad, delay=1.0 - delay)
-                tweener.tween(seed, 'size', 0, 0.25 + random()*0.5, easing=in_quad, delay=1.0 - delay)
+                t = 0.1 * dist(seed.position, dest)
+                seed.layer = 10
+                tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - delay)
+                tweener.tween(seed, 'size', 0, t, easing='in_quad', delay=1.0 - delay)
                 delay *= 0.5
 
             signal(MovementStart(self.scene))
             @tweener.when_done
             def on_tweening_done():
+                for seed in seeds:
+                    seed.layer = 1
+
                 tweener = Tweener()
                 self.scene.add(tweener)
-                # for seed in seeds:
-                #     seed.free()
-                    # signal(CellEmptied(seed, seed.x, seed.y))
 
                 for x in range(-2, 3):
 
@@ -434,18 +312,15 @@ class Grid:
                                     seed = GRID[x, y]
                                     del GRID[x, y]
                                     seed.y -= gap
-                                    # gap = 0
-                                    # xassert (seed.x, seed.y) in GRID, (seed.x, seed.y)
                                     GRID[seed.x, seed.y] = seed
-                                    tweener.tween(seed, 'position', seed.position + ppb.Vector(0, 0.25), 0.25)
-                                    tweener.tween(seed, 'position', ppb.Vector(seed.x, seed.y), 0.25, delay=0.5)
+                                    tweener.tween(seed, 'position', ppb.Vector(seed.x, seed.y), 1 + random()*0.25, delay=0.5, easing='out_bounce')
 
                     for i in range(gap):
                         if seeds:
                             seed = seeds.pop()
-                            seed.drop(self.scene, x, 2 - i)
+                            seed.drop(tweener, x, 2 - i)
 
-                TickSystem.call_later(1, lambda: signal(MovementDone(self.scene)))
+                tweener.when_done(lambda: signal(MovementDone(self.scene)))
 
             tweener.on_tweening_done = on_tweening_done 
             self.scene.add(tweener)
@@ -495,4 +370,4 @@ def setup(scene):
 
 ppb.run(setup=setup, systems=[
     TickSystem,
-])
+], resolution=(1080, 800))
