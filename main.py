@@ -175,23 +175,37 @@ class TickSystem(System):
         for i in reversed(clear):
             del self.callbacks[i]
     
-    last_click = None
+    last_click = (0, 0)
+    last_seed = None
 
     @classmethod
-    def on_button_pressed(self, press_event, signal):
-        x = round(press_event.position.x)
-        y = round(press_event.position.y)
+    def on_button_pressed(cls, ev, signal):
+        x = round(ev.position.x)
+        y = round(ev.position.y)
+
+        cls.last_click = (x, y)
+        cls.last_seed = GRID.get((x, y))
+    
+    @classmethod
+    def on_mouse_motion(cls, ev, signal):
+        if cls.last_seed:
+            cls.last_seed.position = ev.position
+
+    @classmethod
+    def on_button_released(cls, ev, signal):
+        x = round(ev.position.x)
+        y = round(ev.position.y)
+        lx, ly = cls.last_click
+        missed = False
+        if (x, y) not in GRID:
+            missed = True
+        if (lx, ly) not in GRID:
+            missed = True
+
         tweener = Tweener()
-
-        if self.last_click:
-            lx, ly = self.last_click
-            missed = False
-            if (x, y) not in GRID:
-                missed = True
-            if (lx, ly) not in GRID:
-                missed = True
-
-            if not missed and abs(lx-x) <= 1 and abs(ly-y) <= 1:
+        nx = abs(lx-x) == 1
+        ny = abs(ly-y) == 1
+        if not missed and (nx or ny) and not (nx and ny):
                 seed1 = GRID[x, y]
                 seed2 = GRID[lx, ly]
                 GRID[x, y] = seed2
@@ -202,17 +216,17 @@ class TickSystem(System):
                 seed1.y = ly
                 tweener.tween(seed1, 'position', V(lx, ly), 0.25)
                 tweener.tween(seed2, 'position', V(x, y), 0.25)
-        
+        else:
+            tweener.tween(cls.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
+
         if tweener.is_tweening:
             @tweener.when_done
             def on_tweening_done():
-                signal(MovementDone(press_event.scene))
-            press_event.scene.add(tweener)
-
-        if self.last_click == None:
-            self.last_click = (x, y)
-        else:
-            self.last_click = None     
+                signal(MovementDone(ev.scene))
+            ev.scene.add(tweener)
+        
+        cls.last_click = None
+        cls.last_seed = None
 
 
 @dataclass
