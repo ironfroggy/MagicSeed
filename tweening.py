@@ -2,8 +2,12 @@ from dataclasses import dataclass
 from time import monotonic
 
 import ppb
+from ppb.systemslib import System
+
 import easing
 
+def ilerp(f1, f2, t):
+    return int(f1 + t * (f2 - f1))
 
 def flerp(f1, f2, t):
     return f1 + t * (f2 - f1)
@@ -46,8 +50,8 @@ class Tweener:
     def __init__(self):
         self.tweens = []
         self.callbacks = []
-        self.used = False
-        self.done = False
+        # self.used = False
+        # self.done = False
 
     def __hash__(self):
         return hash(id(self))
@@ -57,15 +61,16 @@ class Tweener:
         return bool(self.tweens)
 
     def tween(self, entity, attr, end_value, duration, **kwargs):
-        assert not self.done
+        # assert not self.done
+        delay = kwargs.pop('delay', 0)
         self.used = True
-        start_time = monotonic() + kwargs.pop('delay', 0)
+        start_time = monotonic() + delay
         self.tweens.append(Tween(
             start_time=start_time,
             end_time=start_time + duration,
             obj=entity,
             attr=attr,
-            start_value=getattr(entity, attr),
+            start_value=None,
             end_value=end_value,
             **kwargs,
         ))
@@ -78,11 +83,17 @@ class Tweener:
         clear = []
 
         for i, tween in enumerate(self.tweens):
+            if tween.start_time > t:
+                continue
+            if tween.start_value is None:
+                tween.start_value = getattr(tween.obj, tween.attr)
             tr = (t - tween.start_time) / (tween.end_time - tween.start_time)
             tr = min(1.0, max(0.0, tr))
             tr = getattr(easing, tween.easing)(tr)
             if isinstance(tween.end_value, ppb.Vector):
                 value = vlerp(tween.start_value, tween.end_value, tr)
+            if isinstance(tween.end_value, int):
+                value = ilerp(tween.start_value, tween.end_value, tr)
             else:
                 value = flerp(tween.start_value, tween.end_value, tr)
             setattr(tween.obj, tween.attr, value)
@@ -92,7 +103,23 @@ class Tweener:
         for i in reversed(clear):
             del self.tweens[i]
         
-        if self.used and not self.tweens and not self.done:
-            self.done = True
+        if not self.tweens: # self.used and not self.tweens and not self.done:
+            # self.done = True
             for func in self.callbacks:
                 func()
+            self.callbacks.clear()
+
+
+class TweenSystem(System):
+    scene = None
+    current_tweener = None
+
+    @classmethod
+    def on_scene_started(cls, ev, signal):
+        cls.scene = ev.scene
+        cls.current_tweener = Tweener()
+        cls.scene.add(cls.current_tweener)
+    
+
+def tween(*args, **kwargs):
+    TweenSystem.current_tweener.tween(*args, **kwargs)

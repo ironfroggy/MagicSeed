@@ -1,6 +1,7 @@
+from collections import defaultdict
 from dataclasses import dataclass
 import math
-from random import choice, random
+from random import choice, random, randint
 from time import time
 import types
 
@@ -8,18 +9,25 @@ import ppb
 from ppb import keycodes
 from ppb.events import KeyPressed, KeyReleased
 from ppb.systemslib import System
+from ppb.assetlib import AssetLoadingSystem
+from ppb.systems import EventPoller
+from ppb.systems import SoundController
+from ppb.systems import Updater
 
 import easing
-from tweening import Tweener
+from events import *
+from timer import Timers, delay, repeat, cancel
+from tweening import Tweener, TweenSystem, tween
+from renderer import CustomRenderer
 
 
 # Constants
 
-COLOR_GREEN = 1
-COLOR_RED = 2
-COLOR_YELLOW = 3
-COLOR_BLUE = 4
-COLOR_WHITE = 5
+COLOR_GREEN = (128, 255, 128)
+COLOR_RED = (255, 128, 128)
+COLOR_YELLOW = (255, 255, 128)
+COLOR_BLUE = (128, 128, 255)
+COLOR_WHITE = (255, 128, 255)
 COLORS = (
     COLOR_GREEN,
     COLOR_RED,
@@ -28,14 +36,29 @@ COLORS = (
     COLOR_WHITE,
 )
 
+SEED_GREEN = 1
+SEED_RED = 2
+SEED_YELLOW = 3
+SEED_BLUE = 4
+SEED_WHITE = 5
+SEED_COLORS = {
+    SEED_GREEN: COLOR_GREEN,
+    SEED_RED: COLOR_RED,
+    SEED_YELLOW: COLOR_YELLOW,
+    SEED_BLUE: COLOR_BLUE,
+    SEED_WHITE: COLOR_WHITE,
+}
+
 # Images loaded for each color
 SEED_IMAGES = {
-    COLOR_GREEN: ppb.Image("resources/seed3.png"),
-    COLOR_RED: ppb.Image("resources/seed1.png"),
-    COLOR_YELLOW: ppb.Image("resources/seed2.png"),
-    COLOR_BLUE: ppb.Image("resources/seed5.png"),
-    COLOR_WHITE: ppb.Image("resources/seed4.png"),
+    SEED_GREEN: ppb.Image("resources/seed3.png"),
+    SEED_RED: ppb.Image("resources/seed1.png"),
+    SEED_YELLOW: ppb.Image("resources/seed2.png"),
+    SEED_BLUE: ppb.Image("resources/seed5.png"),
+    SEED_WHITE: ppb.Image("resources/seed4.png"),
 }
+
+V = ppb.Vector
 
 
 def dist(v1, v2):
@@ -45,7 +68,7 @@ def dist(v1, v2):
 
 
 class Seed(ppb.BaseSprite):
-    position = ppb.Vector(0, 0)
+    position = V(0, 0)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -66,41 +89,60 @@ class Seed(ppb.BaseSprite):
         self.x = x
         self.y = y
 
-        color = choice(COLORS)
-        self.color = color
+        color = choice(list(SEED_COLORS.keys()))
+        self.seed_color = color
         self.image = SEED_IMAGES[color]
-        self.size = 0
-        self.position = ppb.Vector(self.x, self.y + 4)
+        self.size = 0.0
+        self.position = V(self.x, self.y + 4)
 
         GRID[x, y] = self
 
         t.tween(self, 'size', 1.0, 0.25, delay=0.5)
-        t.tween(self, 'position', ppb.Vector(self.x, self.y), 1 + random()*0.25, easing='out_bounce')
+        t.tween(self, 'position', V(self.x, self.y), 1 + random()*0.25, easing='out_bounce')
+
+    def spark(self):
+        color = SEED_COLORS[self.seed_color]
+        ParticleSystem.spawn(self.position, color)
+
+    def sparkle(self, seconds):
+        self.sparkle_timer = repeat(0.05, self.spark)
+        delay(seconds, self.stop_sparkle)
+    
+    def stop_sparkle(self):
+        cancel(self.sparkle_timer)
+    
+    def burst(self, color, center):
+        color = SEED_COLORS[color]
+        for _ in range(10):
+            x = -1.0 + random() * 2.0
+            y = -1.0 + random() * 2.0
+            pos = center + V(x, y)
+            ParticleSystem.spawn(pos, color, pos)
 
 
 def GreenSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_GREEN
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    kwargs['seed_color'] = SEED_GREEN
+    kwargs['image'] = SEED_IMAGES[kwargs['seed_color']]
     return Seed(*args, **kwargs)
 
 def RedSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_RED
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    kwargs['seed_color'] = SEED_RED
+    kwargs['image'] = SEED_IMAGES[kwargs['seed_color']]
     return Seed(*args, **kwargs)
 
 def YellowSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_YELLOW
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    kwargs['seed_color'] = SEED_YELLOW
+    kwargs['image'] = SEED_IMAGES[kwargs['seed_color']]
     return Seed(*args, **kwargs)
 
 def BlueSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_BLUE
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    kwargs['seed_color'] = SEED_BLUE
+    kwargs['image'] = SEED_IMAGES[kwargs['seed_color']]
     return Seed(*args, **kwargs)
 
 def WhiteSeed(*args, **kwargs):
-    kwargs['color'] = COLOR_WHITE
-    kwargs['image'] = SEED_IMAGES[kwargs['color']]
+    kwargs['seed_color'] = SEED_WHITE
+    kwargs['image'] = SEED_IMAGES[kwargs['seed_color']]
     return Seed(*args, **kwargs)
 
 
@@ -113,21 +155,6 @@ SEEDS = (
 )
 
 GRID = {}
-
-
-# Event classes
-
-@dataclass
-class MovementStart:
-    scene: object
-
-@dataclass
-class MovementDone:
-    scene: object
-
-@dataclass
-class TweeningDone:
-    tweener: Tweener
 
 
 class TickSystem(System):
@@ -173,8 +200,8 @@ class TickSystem(System):
                 seed2.y = y
                 seed1.x = lx
                 seed1.y = ly
-                tweener.tween(seed1, 'position', ppb.Vector(lx, ly), 0.25)
-                tweener.tween(seed2, 'position', ppb.Vector(x, y), 0.25)
+                tweener.tween(seed1, 'position', V(lx, ly), 0.25)
+                tweener.tween(seed2, 'position', V(x, y), 0.25)
         
         if tweener.is_tweening:
             @tweener.when_done
@@ -185,36 +212,7 @@ class TickSystem(System):
         if self.last_click == None:
             self.last_click = (x, y)
         else:
-            self.last_click = None
-
-
-class Timer:
-    size = 0
-
-    def __init__(self, callback):
-        self.callback = callback
-        self.start_time = time()
-        self.duraction = None
-        self.end_time = None
-        self.repeating = False
-
-    def delay(self, seconds):
-        self.duration = seconds
-        self.end_time = time() + seconds
-    
-    def repeat(self, seconds):
-        self.repeating = True
-        self.delay(seconds)
-
-    def on_idle(self, idle, signal):
-        if self.end_time:
-            t = time()
-            if t >= self.end_time:
-                self.callback()
-                if self.repeating:
-                    self.end_time += self.duration
-                else:
-                    self.end_time = None        
+            self.last_click = None     
 
 
 @dataclass
@@ -226,6 +224,7 @@ class Grid:
         return hash(id(self))
 
     def on_scene_started(self, ev, signal):
+        print(1)
         # TODO: Find out if there is a better way to do this
         self.scene = ev.scene
         self.find_matches(signal)
@@ -236,6 +235,7 @@ class Grid:
     def find_matches(self, signal):
         tweener = Tweener()
         seeds = set()
+        colors = defaultdict(int)
 
         for x in range(-2, 3):
             for y in range(-2, 3):
@@ -247,15 +247,17 @@ class Grid:
                 seed4 = GRID.get((x, y + 3))
                 seed5 = GRID.get((x, y + 4))
                 # Find a simple 3-match
-                if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
+                if all((seed1, seed2, seed3)) and seed1.seed_color == seed2.seed_color == seed3.seed_color:
                     for seed in (seed1, seed2, seed3):
                         seeds.add(seed)
                     # Extend to a 4-match...
-                    if seed4 and seed3.color == seed4.color:
+                    if seed4 and seed3.seed_color == seed4.seed_color:
                         seeds.add(seed4)
                         # Extend to a 5-match...
-                        if seed5 and seed4.color == seed5.color:
+                        if seed5 and seed4.seed_color == seed5.seed_color:
                             seeds.add(seed5)
+
+                    colors[seed1.seed_color] += 1
                 
                 # Match RIGHT along a row
                 seed2 = GRID.get((x + 1, y))
@@ -263,28 +265,34 @@ class Grid:
                 seed4 = GRID.get((x + 3, y))
                 seed5 = GRID.get((x + 4, y))
                 # Find a simple 3-match
-                if all((seed1, seed2, seed3)) and seed1.color == seed2.color == seed3.color:
+                if all((seed1, seed2, seed3)) and seed1.seed_color == seed2.seed_color == seed3.seed_color:
                     for seed in (seed1, seed2, seed3):
                         seeds.add(seed)
                     # Extend to a 4-match...
-                    if seed4 and seed3.color == seed4.color:
+                    if seed4 and seed3.seed_color == seed4.seed_color:
                         seeds.add(seed4)
                         # Extend to a 5-match...
-                        if seed5 and seed4.color == seed5.color:
+                        if seed5 and seed4.seed_color == seed5.seed_color:
                             seeds.add(seed5)
+                    
+                    colors[seed1.seed_color] += 1
 
         if seeds:
-            delay = 0.5
-            dest = ppb.Vector(5, 0)
+            d = 0.5
+            dest = V(5, 0)
             for seed in seeds:
                 seed.free()
                 t = 0.1 * dist(seed.position, dest)
                 seed.layer = 10
-                tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - delay)
-                tweener.tween(seed, 'size', 0, t, easing='in_quad', delay=1.0 - delay)
-                delay *= 0.5
+                delay((1.0 - d), lambda seed=seed: seed.sparkle(t))
+                tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - d)
+                tweener.tween(seed, 'size', 0.0, t, easing='in_quad', delay=1.0 - d)
+                delay(1.0-d+t, lambda seed=seed, color=seed.seed_color: seed.burst(color, dest))
 
-            signal(MovementStart(self.scene))
+                d *= 0.9
+
+            signal(MovementStart(self.scene, colors))
+
             @tweener.when_done
             def on_tweening_done():
                 for seed in seeds:
@@ -328,46 +336,140 @@ class Grid:
 
 class Player(ppb.sprites.Sprite):
     image = ppb.Image("resources/ANGELA.png")
-    size = 4
+    size = 4.0
 
 
 class Monster(ppb.sprites.Sprite):
     image = ppb.Image("resources/MONSTER_SNAKE.png")
-    size = 4
+    size = 4.0
     shake = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hp = 10
 
     def on_idle(self, ev, signal):
         if self.shake:
             y = math.sin(time() * 50) / 25
-            self.position = ppb.Vector(5, y)
+            self.position = V(5, y)
     
     def on_movement_start(self, ev, signal):
-        self.shake = True
-        def stop():
-            self.shake = False
-            self.position = ppb.Vector(5, 0)
-        TickSystem.call_later(0.5, stop)
+        def deal_damage():
+            dmg = sum(ev.colors.values())
+            self.hp -= dmg
+            if self.hp <= 0:
+                signal(MonsterDeath(self))
+            else:
+                self.shake = True
+                def stop():
+                    self.shake = False
+                    self.position = V(5, 0)
+
+                TickSystem.call_later(0.5, stop)
+        TickSystem.call_later(1, deal_damage)
+
+
+class MonsterManager(System):
+    # def on_scene_started(self, ev, signal):
+    #     self.scene = ev.scene
+
+    def on_monster_death(self, ev, signal):
+        # t = Tweener()
+        # self.scene.add(t)
+        tween(ev.monster, 'position', V(5, -8), 1.0, easing='in_quad')
+        tween(ev.monster, 'position', V(5, 0), 1.0, delay=1, easing='out_quad')
+        ev.monster.hp = 10
+
+
+def proxy_method(attr, name):
+    def _(self, *args, **kwargs):
+        obj = getattr(self, attr)
+        return getattr(obj, name)(*args, **kwargs)
+    _.__name__ = name
+    return _
+
+
+class EffectedImage:
+    def __init__(self, image, opacity=255):
+        self.image = image
+        self.opacity = opacity
+
+    load = proxy_method('image', 'load')
+
+
+class Particle(ppb.sprites.Sprite):
+    base_image = ppb.Image("resources/sparkle1.png")
+    opacity = 128
+    color = COLOR_WHITE
+    size = 2
+    rotation = 0
+
+    def __init__(self, *args, **kwargs):
+        self.color = kwargs.pop('color', COLOR_WHITE)
+        super().__init__(*args, **kwargs)
+        self.image = EffectedImage(self.base_image, opacity=128)
+
+
+class ParticleSystem(System):
+    sparkles = []
+    index = 0
+    size = 100
+
+    @classmethod
+    def on_scene_started(cls, ev, signal):
+        t = Tweener()
+        cls.t = t
+        ev.scene.add(t)
+
+        for _ in range(cls.size):
+            position = V(random()*12 - 6, random()*12 - 6)
+            s = Particle(position=position)
+            s.opacity = 0
+            ev.scene.add(s)
+            cls.sparkles.append(s)
+
+    @classmethod
+    def spawn(cls, pos, color, heading=None):
+        s = cls.sparkles[cls.index]
+        cls.index = (cls.index + 1) % cls.size
+        s.color = color
+        s.position = pos
+        s.opacity = 128
+        s.rotation = randint(0, 260)
+        s.size = 1.5
+        s.layer = 100
+        cls.t.tween(s, 'opacity', 0, 0.5, easing='linear')
+        cls.t.tween(s, 'size', 2.5, 0.5, easing='linear')
+        if heading:
+            cls.t.tween(s, 'position', heading, 0.5, easing='linear')
 
 
 def setup(scene):
     for x in range(-2, 3):
         for y in range(-2, 3):
             seed_class = choice(SEEDS)
-            seed = seed_class(position=ppb.Vector(x, y))
+            seed = seed_class(position=V(x, y))
             scene.add(seed)
             GRID[x, y] = seed
     
-    player = Player(position=ppb.Vector(-5, 0))
+    player = Player(position=V(-5, 0))
     scene.add(player)
 
-    snake = Monster(position=ppb.Vector(5, 0))
+    snake = Monster(position=V(5, 0))
     scene.add(snake)
 
     scene.add(Grid())
 
 
-
-
-ppb.run(setup=setup, systems=[
-    TickSystem,
-], resolution=(1080, 800))
+ppb.run(
+    setup=setup,
+    basic_systems=(CustomRenderer, Updater, EventPoller, SoundController, AssetLoadingSystem),
+    systems=[
+        TickSystem,
+        MonsterManager,
+        TweenSystem,
+        Timers,
+        ParticleSystem,
+    ],
+    resolution=(1080, 800),
+)
