@@ -19,6 +19,7 @@ from events import *
 from timer import Timers, delay, repeat, cancel
 from tweening import Tweener, TweenSystem, tween
 from renderer import CustomRenderer
+from text import Text
 
 
 # Constants
@@ -59,7 +60,7 @@ SEED_IMAGES = {
 }
 
 SOUND_SWAP = ppb.Sound("resources/sound/swap.wav")
-SOUND_CHIME = ppb.Sound("resources/sound/chimes.wav")
+SOUND_CHIME = ppb.Sound("resources/sound/chime1.wav")
 
 V = ppb.Vector
 
@@ -158,6 +159,21 @@ SEEDS = (
 )
 
 GRID = {}
+
+
+# TODO: Simplify this
+_chime_playing = False
+def chime(t, signal):
+    global _chime_playing
+    if not _chime_playing:
+        signal(PlaySound(SOUND_CHIME))
+        SOUND_CHIME.volume = 6.0
+        tween(SOUND_CHIME, 'volume', 0.0, t, easing='out_quad')
+        _chime_playing = True
+        def done():
+            global _chime_playing
+            _chime_playing = False
+        delay(t, done)
 
 
 class TickSystem(System):
@@ -259,6 +275,7 @@ class Grid:
         for x in range(-2, 3):
             for y in range(-2, 3):
                 seed1 = GRID.get((x, y))
+                points = 0
 
                 # Match UP along a column
                 seed2 = GRID.get((x, y + 1))
@@ -269,12 +286,15 @@ class Grid:
                 if all((seed1, seed2, seed3)) and seed1.seed_color == seed2.seed_color == seed3.seed_color:
                     for seed in (seed1, seed2, seed3):
                         seeds.add(seed)
+                    points = 250
                     # Extend to a 4-match...
                     if seed4 and seed3.seed_color == seed4.seed_color:
                         seeds.add(seed4)
+                        points = 500
                         # Extend to a 5-match...
                         if seed5 and seed4.seed_color == seed5.seed_color:
                             seeds.add(seed5)
+                            points = 1000
 
                     colors[seed1.seed_color] += 1
                 
@@ -287,14 +307,19 @@ class Grid:
                 if all((seed1, seed2, seed3)) and seed1.seed_color == seed2.seed_color == seed3.seed_color:
                     for seed in (seed1, seed2, seed3):
                         seeds.add(seed)
+                    points += 250
                     # Extend to a 4-match...
                     if seed4 and seed3.seed_color == seed4.seed_color:
                         seeds.add(seed4)
+                        points += 250
                         # Extend to a 5-match...
                         if seed5 and seed4.seed_color == seed5.seed_color:
                             seeds.add(seed5)
+                            points += 500
                     
                     colors[seed1.seed_color] += 1
+                
+                signal(ScorePoints(points))
 
         if seeds:
             d = 0.5
@@ -313,9 +338,7 @@ class Grid:
             signal(MovementStart(self.scene, colors))
 
             def _():
-                signal(PlaySound(SOUND_CHIME))
-                SOUND_CHIME.volume = 6.0
-                tween(SOUND_CHIME, 'volume', 0.0, t + 1.0 - d, easing='out_quad')
+                chime(t + 1.0 - d, signal)
             delay(d, _)
 
             @tweener.when_done
@@ -469,6 +492,25 @@ class ParticleSystem(System):
             cls.t.tween(s, 'position', heading, 0.5, easing='linear')
 
 
+@dataclass
+class ScorePoints:
+    points: int
+
+
+class ScoreBoard(System):
+    
+    @classmethod
+    def on_scene_started(cls, ev, signal):
+        cls.score = 0
+        cls.text = Text(str(cls.score), V(0, 4))
+        ev.scene.add(cls.text)
+    
+    @classmethod
+    def on_score_points(cls, ev, signal):
+        cls.score += ev.points
+        cls.text.text = str(cls.score)
+
+
 def setup(scene):
     for x in range(-2, 3):
         for y in range(-2, 3):
@@ -487,6 +529,10 @@ def setup(scene):
 
     SOUND_SWAP.volume = 0.5
 
+    # t = Text("0", V(0, 4))
+    # scene.add(t)
+    # repeat(1, lambda: setattr(t, 'text', str(int(getattr(t, 'text')) + 1)))
+
 
 ppb.run(
     setup=setup,
@@ -497,6 +543,7 @@ ppb.run(
         TweenSystem,
         Timers,
         ParticleSystem,
+        ScoreBoard,
     ],
     resolution=(1080, 800),
 )
