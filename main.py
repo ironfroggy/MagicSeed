@@ -7,7 +7,7 @@ import types
 
 import ppb
 from ppb import keycodes
-from ppb.events import KeyPressed, KeyReleased
+from ppb.events import KeyPressed, KeyReleased, PlaySound
 from ppb.systemslib import System
 from ppb.assetlib import AssetLoadingSystem
 from ppb.systems import EventPoller
@@ -57,6 +57,9 @@ SEED_IMAGES = {
     SEED_BLUE: ppb.Image("resources/seed5.png"),
     SEED_WHITE: ppb.Image("resources/seed4.png"),
 }
+
+SOUND_SWAP = ppb.Sound("resources/sound/swap.wav")
+SOUND_CHIME = ppb.Sound("resources/sound/chimes.wav")
 
 V = ppb.Vector
 
@@ -206,16 +209,18 @@ class TickSystem(System):
         nx = abs(lx-x) == 1
         ny = abs(ly-y) == 1
         if not missed and (nx or ny) and not (nx and ny):
-                seed1 = GRID[x, y]
-                seed2 = GRID[lx, ly]
-                GRID[x, y] = seed2
-                GRID[lx, ly] = seed1
-                seed2.x = x
-                seed2.y = y
-                seed1.x = lx
-                seed1.y = ly
-                tweener.tween(seed1, 'position', V(lx, ly), 0.25)
-                tweener.tween(seed2, 'position', V(x, y), 0.25)
+            seed1 = GRID[x, y]
+            seed2 = GRID[lx, ly]
+            GRID[x, y] = seed2
+            GRID[lx, ly] = seed1
+            seed2.x = x
+            seed2.y = y
+            seed1.x = lx
+            seed1.y = ly
+            tweener.tween(seed1, 'position', V(lx, ly), 0.25)
+            tweener.tween(seed2, 'position', V(x, y), 0.25)
+
+            signal(PlaySound(SOUND_SWAP))
         else:
             tweener.tween(cls.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
 
@@ -306,6 +311,12 @@ class Grid:
                 d *= 0.9
 
             signal(MovementStart(self.scene, colors))
+
+            def _():
+                signal(PlaySound(SOUND_CHIME))
+                SOUND_CHIME.volume = 6.0
+                tween(SOUND_CHIME, 'volume', 0.0, t + 1.0 - d, easing='out_quad')
+            delay(d, _)
 
             @tweener.when_done
             def on_tweening_done():
@@ -473,6 +484,8 @@ def setup(scene):
     scene.add(snake)
 
     scene.add(Grid())
+
+    SOUND_SWAP.volume = 0.5
 
 
 ppb.run(
