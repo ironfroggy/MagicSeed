@@ -4,6 +4,7 @@ import math
 from random import choice, random, randint
 from time import time
 import types
+from typing import Tuple
 
 import ppb
 from ppb import keycodes
@@ -576,6 +577,26 @@ class ScoreBoard(System):
         cls.text.text = str(cls.score)
 
 
+@dataclass
+class HPBar:
+    position: ppb.Vector
+    size: int = 0
+    bg: ppb.Sprite = None
+    segments: Tuple[ppb.Sprite] = ()
+
+    BAR_BG = ppb.Image("resources/BAR_BG.png")
+    BAR_SEGMENT = ppb.Image("resources/BAR_SEGMENT.png")
+
+    def __hash__(self):
+        return hash(id(self))
+
+    def on_scene_started(self, ev, signal):
+        self.bg = ppb.Sprite(
+            position=self.position,
+            image=self.BAR_BG
+        )
+
+
 def setup(scene):
     for x in range(-2, 3):
         for y in range(-2, 3):
@@ -603,6 +624,10 @@ def setup(scene):
     # t = Text("0", V(0, 4))
     # scene.add(t)
     # repeat(1, lambda: setattr(t, 'text', str(int(getattr(t, 'text')) + 1)))
+
+    scene.add(HPBar(
+        position=V(POS_PLAYER + V(0, 4)),
+    ))
 
 
 ppb.run(
