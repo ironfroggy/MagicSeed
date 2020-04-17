@@ -425,10 +425,17 @@ class Player(ppb.sprites.Sprite):
 
         ev.scene.add(self.hp_text)
 
+        self.hp_bar = Bar(
+            scene=ev.scene,
+            position=V(self.position + V(0, -3.5)),
+        )
+        ev.scene.add(self.hp_bar)
+
     def on_damage_dealt(self, ev, signal):
         if ev.target == 'player':
             self.hp -= ev.dmg
             self.hp_text.text = str(self.hp)
+            self.hp_bar.set_value(self.hp)
 
 
 class Monster(ppb.sprites.Sprite):
@@ -444,6 +451,7 @@ class Monster(ppb.sprites.Sprite):
     def hp(self, value):
         self._hp = value
         self.hp_text.text = str(value)
+        self.hp_bar.set_value(value)
     
     def attack(self, signal):
         signal(DamageDealt('player', 1))
@@ -469,9 +477,15 @@ class Monster(ppb.sprites.Sprite):
         self.hp_text.scene = ev.scene
         self.hp_text.setup()
 
-        self.hp = 10
-
         ev.scene.add(self.hp_text)
+
+        self.hp_bar = Bar(
+            scene=ev.scene,
+            position=V(self.position + V(0, -3.5)),
+        )
+        ev.scene.add(self.hp_bar)
+
+        self.hp = 10
 
         repeat(3, lambda: self.attack(signal))
 
@@ -578,8 +592,10 @@ class ScoreBoard(System):
 
 
 @dataclass
-class HPBar:
+class Bar:
     position: ppb.Vector
+    value: int = 10
+    max: int = 10
     size: int = 0
     bg: ppb.Sprite = None
     segments: Tuple[ppb.Sprite] = ()
@@ -590,11 +606,41 @@ class HPBar:
     def __hash__(self):
         return hash(id(self))
 
-    def on_scene_started(self, ev, signal):
+    def __init__(self, scene, **kwargs):
+        super().__init__()
+        self.position = kwargs.get('position')
         self.bg = ppb.Sprite(
             position=self.position,
-            image=self.BAR_BG
+            image=self.BAR_BG,
+            size=1/4,
+            layer=50,
         )
+        scene.add(self.bg)
+
+        segments = []
+        for i in range(16):
+            segment = ppb.Sprite(
+                position=self.position + V(i/4 - 2, 0),
+                image=self.BAR_SEGMENT,
+                size=1/4,
+                layer=51,
+            )
+            segments.append(segment)
+            scene.add(segment)
+        self.segments = tuple(segments)
+
+        self.set_value(10)
+    
+    def set_value(self, value):
+        if value == 0:
+            p = 0
+        else:
+            p = int(value / self.max * 16)
+        for i, segment in enumerate(self.segments):
+            if i >= p:
+                segment.size = 0
+            else:
+                segment.size = 1/4
 
 
 def setup(scene):
@@ -624,10 +670,6 @@ def setup(scene):
     # t = Text("0", V(0, 4))
     # scene.add(t)
     # repeat(1, lambda: setattr(t, 'text', str(int(getattr(t, 'text')) + 1)))
-
-    scene.add(HPBar(
-        position=V(POS_PLAYER + V(0, 4)),
-    ))
 
 
 ppb.run(
