@@ -21,6 +21,8 @@ from tweening import Tweener, TweenSystem, tween
 from renderer import CustomRenderer
 from text import Text
 
+V = ppb.Vector
+
 
 # Constants
 
@@ -62,7 +64,8 @@ SEED_IMAGES = {
 SOUND_SWAP = ppb.Sound("resources/sound/swap.wav")
 SOUND_CHIME = ppb.Sound("resources/sound/chime1.wav")
 
-V = ppb.Vector
+POS_PLAYER = V(-7, -1)
+POS_ENEMY = V(7, -1)
 
 
 def dist(v1, v2):
@@ -287,16 +290,17 @@ class Grid:
                     for seed in (seed1, seed2, seed3):
                         seeds.add(seed)
                     points = 250
+                    colors[seed1.seed_color] += 3
                     # Extend to a 4-match...
                     if seed4 and seed3.seed_color == seed4.seed_color:
                         seeds.add(seed4)
+                        colors[seed1.seed_color] += 1
                         points = 500
                         # Extend to a 5-match...
                         if seed5 and seed4.seed_color == seed5.seed_color:
                             seeds.add(seed5)
+                            colors[seed1.seed_color] += 1
                             points = 1000
-
-                    colors[seed1.seed_color] += 1
                 
                 # Match RIGHT along a row
                 seed2 = GRID.get((x + 1, y))
@@ -308,13 +312,16 @@ class Grid:
                     for seed in (seed1, seed2, seed3):
                         seeds.add(seed)
                     points += 250
+                    colors[seed1.seed_color] += 3
                     # Extend to a 4-match...
                     if seed4 and seed3.seed_color == seed4.seed_color:
                         seeds.add(seed4)
+                        colors[seed1.seed_color] += 1
                         points += 250
                         # Extend to a 5-match...
                         if seed5 and seed4.seed_color == seed5.seed_color:
                             seeds.add(seed5)
+                            colors[seed1.seed_color] += 1
                             points += 500
                     
                     colors[seed1.seed_color] += 1
@@ -323,15 +330,19 @@ class Grid:
 
         if seeds:
             d = 0.5
-            dest = V(5, 0)
             for seed in seeds:
+                if seed.seed_color == SEED_GREEN:
+                    dest = POS_PLAYER
+                else:
+                    dest = POS_ENEMY
                 seed.free()
                 t = 0.1 * dist(seed.position, dest)
                 seed.layer = 10
                 delay((1.0 - d), lambda seed=seed: seed.sparkle(t))
                 tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - d)
                 tweener.tween(seed, 'size', 0.0, t, easing='in_quad', delay=1.0 - d)
-                delay(1.0-d+t, lambda seed=seed, color=seed.seed_color: seed.burst(color, dest))
+
+                # delay(1.0-d+t, lambda seed=seed, color=seed.seed_color: seed.burst(color, dest))
 
                 d *= 0.9
 
@@ -340,6 +351,22 @@ class Grid:
             def _():
                 chime(t + 1.0 - d, signal)
             delay(d, _)
+
+            def _():
+                dmg = 0
+                heal = 0
+                for c, v in colors.items():
+                    if c == SEED_GREEN:
+                        heal = 3
+                    else:
+                        dmg += v - 2
+                if dmg:
+                    signal(DamageDealt('monster', dmg))
+                    seed1.burst(choice(list(colors)), POS_ENEMY)
+                if heal:
+                    signal(DamageDealt('player', -heal))
+                    seed1.burst(SEED_GREEN, POS_PLAYER)
+            delay(1.0-d+t, _)
 
             @tweener.when_done
             def on_tweening_done():
@@ -386,35 +413,73 @@ class Player(ppb.sprites.Sprite):
     image = ppb.Image("resources/ANGELA.png")
     size = 4.0
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def on_scene_started(self, ev, signal):
+        self.hp = 10
+        self.hp_text = Text(str(self.hp), self.position + V(0, -3))
+        self.hp_text.scene = ev.scene
+        self.hp_text.setup()
+
+        ev.scene.add(self.hp_text)
+
+    def on_damage_dealt(self, ev, signal):
+        if ev.target == 'player':
+            self.hp -= ev.dmg
+            self.hp_text.text = str(self.hp)
+
 
 class Monster(ppb.sprites.Sprite):
     image = ppb.Image("resources/MONSTER_SNAKE.png")
     size = 4.0
     shake = False
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.hp = 10
+    @property
+    def hp(self):
+        return self._hp
+    
+    @hp.setter
+    def hp(self, value):
+        self._hp = value
+        self.hp_text.text = str(value)
+    
+    def attack(self, signal):
+        signal(DamageDealt('player', 1))
 
     def on_idle(self, ev, signal):
         if self.shake:
+            px, py = POS_ENEMY
             y = math.sin(time() * 50) / 25
-            self.position = V(5, y)
+            self.position = V(px, py + y)
     
     def on_movement_start(self, ev, signal):
         def deal_damage():
-            dmg = sum(ev.colors.values())
-            self.hp -= dmg
+            self.shake = True
+            def stop():
+                self.shake = False
+                self.position = POS_ENEMY
+
+            TickSystem.call_later(0.5, stop)
+        TickSystem.call_later(1, deal_damage)
+
+    def on_scene_started(self, ev, signal):
+        self.hp_text = Text('', self.position + V(0, -3))
+        self.hp_text.scene = ev.scene
+        self.hp_text.setup()
+
+        self.hp = 10
+
+        ev.scene.add(self.hp_text)
+
+        repeat(3, lambda: self.attack(signal))
+
+    def on_damage_dealt(self, ev, signal):
+        if ev.target == 'monster':
+            self.hp -= ev.dmg
+
             if self.hp <= 0:
                 signal(MonsterDeath(self))
-            else:
-                self.shake = True
-                def stop():
-                    self.shake = False
-                    self.position = V(5, 0)
-
-                TickSystem.call_later(0.5, stop)
-        TickSystem.call_later(1, deal_damage)
 
 
 class MonsterManager(System):
@@ -424,8 +489,8 @@ class MonsterManager(System):
     def on_monster_death(self, ev, signal):
         # t = Tweener()
         # self.scene.add(t)
-        tween(ev.monster, 'position', V(5, -8), 1.0, easing='in_quad')
-        tween(ev.monster, 'position', V(5, 0), 1.0, delay=1, easing='out_quad')
+        tween(ev.monster, 'position', POS_ENEMY + V(4, 0), 1.0, easing='in_quad')
+        tween(ev.monster, 'position', POS_ENEMY, 1.0, delay=1, easing='out_quad')
         ev.monster.hp = 10
 
 
@@ -519,15 +584,21 @@ def setup(scene):
             scene.add(seed)
             GRID[x, y] = seed
     
-    player = Player(position=V(-5, 0))
+    player = Player(position=POS_PLAYER)
     scene.add(player)
 
-    snake = Monster(position=V(5, 0))
+    snake = Monster(position=POS_ENEMY)
     scene.add(snake)
 
     scene.add(Grid())
 
-    SOUND_SWAP.volume = 0.5
+    scene.add(ppb.Sprite(
+        image=ppb.Image("resources/BACKGROUND.png"),
+        size=12,
+        layer=-1,
+    ))
+
+    # SOUND_SWAP.volume = 0.5
 
     # t = Text("0", V(0, 4))
     # scene.add(t)
@@ -545,5 +616,5 @@ ppb.run(
         ParticleSystem,
         ScoreBoard,
     ],
-    resolution=(1080, 800),
+    resolution=(1280, 720),
 )

@@ -33,9 +33,16 @@ class Text:
     def __init__(self, text, position):
         self.size = 0
         self.position = position
-        self._text = text
         self.signal = None
         self.letters = []
+        self._text = text
+
+    def on_scene_started(self, ev, signal):
+        self.scene = ev.scene
+        self.text = self._text
+    
+    def setup(self):
+        self.text = self._text
     
     @property
     def text(self):
@@ -52,10 +59,7 @@ class Text:
         align = 0.5 * len(self.text)
         for i, c in enumerate(self.text):
             l = Letter(c)
+            l.layer = 100
             l.position = ppb.Vector(p.x + i/2 - align, p.y)
             self.scene.add(l)
             self.letters.append(l)
-    
-    def on_scene_started(self, ev, signal):
-        self.scene = ev.scene
-        self.text = self._text

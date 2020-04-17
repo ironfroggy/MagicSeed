@@ -17,6 +17,10 @@ class MovementDone:
 class TweeningDone:
     tweener: Tweener
 
+@dataclass
+class DamageDealt:
+    target: str
+    dmg: int
 
 @dataclass
 class MonsterDeath:
