@@ -30,12 +30,17 @@ class Letter(ppb.Sprite):
                     self.rect = (x*16, y*16, 16, 16)
 
 class Text:
-    def __init__(self, text, position):
-        self.size = 0
+    def __init__(self, text, position, layer=100, align='center'):
         self.position = position
+        self.layer = layer
+        self.align = align
         self.signal = None
         self.letters = []
         self._text = text
+        self._size = 2
+    
+    def __image__(self):
+        return None
 
     def on_scene_started(self, ev, signal):
         self.scene = ev.scene
@@ -48,6 +53,16 @@ class Text:
     def text(self):
         return self._text
     
+    @property
+    def size(self):
+        return self._size
+    
+    @size.setter
+    def size(self, value):
+        self._size = value
+        for l in self.letters:
+            l.size = value
+
     @text.setter
     def text(self, value):
         self._text = value
@@ -56,10 +71,19 @@ class Text:
         self.letters.clear()
         
         p = self.position
-        align = 0.5 * len(self.text)
+
+        if self.align == 'center':
+            align = -0.25 * len(self.text)
+        elif self.align == 'left':
+            raise NotImplementedError()
+        elif self.align == 'right':
+            align = 0
+        else:
+            raise ValueError()
+
         for i, c in enumerate(self.text):
             l = Letter(c)
-            l.layer = 100
-            l.position = ppb.Vector(p.x + i/2 - align, p.y)
+            l.layer = self.layer
+            l.position = ppb.Vector(p.x + i/2 + align, p.y)
             self.scene.add(l)
             self.letters.append(l)

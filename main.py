@@ -7,7 +7,7 @@ import types
 from typing import Tuple
 
 import ppb
-from ppb import keycodes
+from ppb import keycodes as k
 from ppb.events import KeyPressed, KeyReleased, PlaySound
 from ppb.systemslib import System
 from ppb.assetlib import AssetLoadingSystem
@@ -21,6 +21,7 @@ from timer import Timers, delay, repeat, cancel
 from tweening import Tweener, TweenSystem, tween
 from renderer import CustomRenderer
 from text import Text
+from menu import MenuSystem
 
 V = ppb.Vector
 
@@ -182,10 +183,20 @@ def chime(t, signal):
 
 class TickSystem(System):
     callbacks = []
+    game_started = False
     
     @classmethod
     def call_later(self, seconds, func):
         self.callbacks.append((time() + seconds, func))
+    
+    @classmethod
+    def on_start_game(cls, ev, signal):
+        cls.callbacks = []
+        cls.game_started = True
+    
+    @classmethod
+    def on_player_death(cls, ev, signal):
+        cls.game_started = False
 
     @classmethod
     def on_idle(self, update, signal):
@@ -198,11 +209,19 @@ class TickSystem(System):
         for i in reversed(clear):
             del self.callbacks[i]
     
+    @classmethod
+    def on_key_released(cls, ev, signal):
+        if ev.key == k.Escape:
+            signal(OpenMenu())
+    
     last_click = (0, 0)
     last_seed = None
 
     @classmethod
     def on_button_pressed(cls, ev, signal):
+        if not cls.game_started:
+            return
+
         x = round(ev.position.x)
         y = round(ev.position.y)
 
@@ -216,6 +235,9 @@ class TickSystem(System):
 
     @classmethod
     def on_button_released(cls, ev, signal):
+        if not cls.game_started:
+            return
+
         x = round(ev.position.x)
         y = round(ev.position.y)
         lx, ly = cls.last_click
@@ -261,12 +283,19 @@ class Grid:
 
     def __hash__(self):
         return hash(id(self))
+    
+    def on_start_game(self, ev, signal):
+        t = Tweener()
+        ev.scene.add(t)
+        for x in range(-2, 3):
+            for y in range(-2, 3):
+                seed = GRID[x, y]
+                seed.drop(t, x, y)
+        t.when_done(lambda: self.find_matches(signal))
 
     def on_scene_started(self, ev, signal):
-        print(1)
-        # TODO: Find out if there is a better way to do this
         self.scene = ev.scene
-        self.find_matches(signal)
+        # self.find_matches(signal)
 
     def on_movement_done(self, ev, signal):
         self.find_matches(signal)
@@ -414,21 +443,43 @@ class Player(ppb.sprites.Sprite):
     image = ppb.Image("resources/ANGELA.png")
     size = 4.0
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    @property
+    def hp(self):
+        return self._hp
+    
+    @hp.setter
+    def hp(self, value):
+        self._hp = value
+        self.hp_text.text = str(value)
+        self.hp_bar.set_value(value)
+    
+    def on_start_game(self, ev, signal):
+        self.hp = 10
 
     def on_scene_started(self, ev, signal):
-        self.hp = 10
-        self.hp_text = Text(str(self.hp), self.position + V(0, -3))
+        self.hp_text = Text('', self.position + V(0, -3))
         self.hp_text.scene = ev.scene
         self.hp_text.setup()
 
         ev.scene.add(self.hp_text)
 
+        self.hp_bar = Bar(
+            scene=ev.scene,
+            position=V(self.position + V(0, -3.5)),
+        )
+        ev.scene.add(self.hp_bar)
+
+        self.hp = 10
+    
+    def on_player_death(self, ev, signal):
+        self.hp = 10
+
     def on_damage_dealt(self, ev, signal):
         if ev.target == 'player':
             self.hp -= ev.dmg
-            self.hp_text.text = str(self.hp)
+
+            if self.hp <= 0:
+                signal(PlayerDeath(self))
 
 
 class Monster(ppb.sprites.Sprite):
@@ -444,9 +495,13 @@ class Monster(ppb.sprites.Sprite):
     def hp(self, value):
         self._hp = value
         self.hp_text.text = str(value)
+        self.hp_bar.set_value(value)
     
     def attack(self, signal):
         signal(DamageDealt('player', 1))
+    
+    def on_start_game(self, ev, signal):
+        self.hp = 10
 
     def on_idle(self, ev, signal):
         if self.shake:
@@ -469,9 +524,15 @@ class Monster(ppb.sprites.Sprite):
         self.hp_text.scene = ev.scene
         self.hp_text.setup()
 
-        self.hp = 10
-
         ev.scene.add(self.hp_text)
+
+        self.hp_bar = Bar(
+            scene=ev.scene,
+            position=V(self.position + V(0, -3.5)),
+        )
+        ev.scene.add(self.hp_bar)
+
+        self.hp = 10
 
         repeat(3, lambda: self.attack(signal))
 
@@ -514,6 +575,7 @@ class EffectedImage:
 class Particle(ppb.sprites.Sprite):
     base_image = ppb.Image("resources/sparkle1.png")
     opacity = 128
+    opacity_mode = 'add'
     color = COLOR_WHITE
     size = 2
     rotation = 0
@@ -578,8 +640,10 @@ class ScoreBoard(System):
 
 
 @dataclass
-class HPBar:
+class Bar:
     position: ppb.Vector
+    value: int = 10
+    max: int = 10
     size: int = 0
     bg: ppb.Sprite = None
     segments: Tuple[ppb.Sprite] = ()
@@ -590,11 +654,41 @@ class HPBar:
     def __hash__(self):
         return hash(id(self))
 
-    def on_scene_started(self, ev, signal):
+    def __init__(self, scene, **kwargs):
+        super().__init__()
+        self.position = kwargs.get('position')
         self.bg = ppb.Sprite(
             position=self.position,
-            image=self.BAR_BG
+            image=self.BAR_BG,
+            size=1/4,
+            layer=50,
         )
+        scene.add(self.bg)
+
+        segments = []
+        for i in range(16):
+            segment = ppb.Sprite(
+                position=self.position + V(i/4 - 2, 0),
+                image=self.BAR_SEGMENT,
+                size=1/4,
+                layer=51,
+            )
+            segments.append(segment)
+            scene.add(segment)
+        self.segments = tuple(segments)
+
+        self.set_value(10)
+    
+    def set_value(self, value):
+        if value == 0:
+            p = 0
+        else:
+            p = int(value / self.max * 16)
+        for i, segment in enumerate(self.segments):
+            if i >= p:
+                segment.size = 0
+            else:
+                segment.size = 1/4
 
 
 def setup(scene):
@@ -625,16 +719,13 @@ def setup(scene):
     # scene.add(t)
     # repeat(1, lambda: setattr(t, 'text', str(int(getattr(t, 'text')) + 1)))
 
-    scene.add(HPBar(
-        position=V(POS_PLAYER + V(0, 4)),
-    ))
-
 
 ppb.run(
     setup=setup,
     basic_systems=(CustomRenderer, Updater, EventPoller, SoundController, AssetLoadingSystem),
     systems=[
         TickSystem,
+        MenuSystem,
         MonsterManager,
         TweenSystem,
         Timers,
@@ -642,6 +733,6 @@ ppb.run(
         ScoreBoard,
     ],
     resolution=(1280, 720),
-    target_frame_rate=144.0,
     window_title='✨Seed Magic✨',
+    target_frame_rate=60,
 )

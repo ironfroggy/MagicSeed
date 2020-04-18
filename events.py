@@ -2,7 +2,13 @@ from dataclasses import dataclass
 from tweening import Tweener
 
 
-# Event classes
+@dataclass
+class StartGame:
+    pass
+
+@dataclass
+class OpenMenu:
+    pass
 
 @dataclass
 class MovementStart:
@@ -25,3 +31,7 @@ class DamageDealt:
 @dataclass
 class MonsterDeath:
     monster: object
+
+@dataclass
+class PlayerDeath:
+    player: object
