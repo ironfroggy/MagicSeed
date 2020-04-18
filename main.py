@@ -263,7 +263,7 @@ class TickSystem(System):
             tweener.tween(seed2, 'position', V(x, y), 0.25)
 
             signal(PlaySound(SOUND_SWAP))
-        else:
+        elif cls.last_seed:
             tweener.tween(cls.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
 
         if tweener.is_tweening:
