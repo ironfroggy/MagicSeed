@@ -114,7 +114,7 @@ class Seed(ppb.BaseSprite):
         ParticleSystem.spawn(self.position, color)
 
     def sparkle(self, seconds):
-        self.sparkle_timer = repeat(0.05, self.spark)
+        self.sparkle_timer = repeat(0.01, self.spark)
         delay(seconds, self.stop_sparkle)
     
     def stop_sparkle(self):
@@ -122,11 +122,11 @@ class Seed(ppb.BaseSprite):
     
     def burst(self, color, center):
         color = SEED_COLORS[color]
-        for _ in range(10):
-            x = -1.0 + random() * 2.0
-            y = -1.0 + random() * 2.0
+        for i in range(100):
+            x = -2.0 + random() * 4.0
+            y = -2.0 + random() * 4.0
             pos = center + V(x, y)
-            ParticleSystem.spawn(pos, color, pos)
+            delay(i * 0.003, lambda pos=pos: ParticleSystem.spawn(center, color, pos))
 
 
 def GreenSeed(*args, **kwargs):
@@ -589,7 +589,7 @@ class Particle(ppb.sprites.Sprite):
 class ParticleSystem(System):
     sparkles = []
     index = 0
-    size = 100
+    size = 1000
 
     @classmethod
     def on_scene_started(cls, ev, signal):
