@@ -61,7 +61,7 @@ class Tweener:
         return bool(self.tweens)
 
     def tween(self, entity, attr, end_value, duration, **kwargs):
-        # assert not self.done
+        assert entity
         delay = kwargs.pop('delay', 0)
         self.used = True
         start_time = monotonic() + delay

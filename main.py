@@ -7,7 +7,7 @@ import types
 from typing import Tuple
 
 import ppb
-from ppb import keycodes
+from ppb import keycodes as k
 from ppb.events import KeyPressed, KeyReleased, PlaySound
 from ppb.systemslib import System
 from ppb.assetlib import AssetLoadingSystem
@@ -209,6 +209,11 @@ class TickSystem(System):
         for i in reversed(clear):
             del self.callbacks[i]
     
+    @classmethod
+    def on_key_released(cls, ev, signal):
+        if ev.key == k.Escape:
+            signal(OpenMenu())
+    
     last_click = (0, 0)
     last_seed = None
 
@@ -290,7 +295,7 @@ class Grid:
 
     def on_scene_started(self, ev, signal):
         self.scene = ev.scene
-        self.find_matches(signal)
+        # self.find_matches(signal)
 
     def on_movement_done(self, ev, signal):
         self.find_matches(signal)

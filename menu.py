@@ -15,14 +15,26 @@ class MenuSystem(System):
     menu_active = True
 
     def on_start_game(self, ev, signal):
-        tween(self.bg, 'size', 0.0, 1, easing='in_quad')
-        tween(self.opt_start, 'size', 0.0, 1, easing='in_quad')
-        tween(self.opt_quit, 'size', 0.0, 1, easing='in_quad')
-        tween(self.title, 'size', 0.0, 1, easing='in_quad')
+        self.close_menu()
+    
+    def on_player_death(self, ev, signal):
+        self.open_menu()
+
+    def on_open_menu(self, ev, signal):
+        if self.menu_active:
+            self.close_menu()
+        else:
+            self.open_menu()
+    
+    def close_menu(self):
+        tween(self.bg, 'size', 0.0, 1, easing='out_bounce')
+        tween(self.opt_start, 'size', 0.0, 0.5, easing='in_quad')
+        tween(self.opt_quit, 'size', 0.0, 0.5, easing='in_quad')
+        tween(self.title, 'size', 0.0, 0.5, easing='in_quad')
 
         self.menu_active = False
     
-    def on_player_death(self, ev, signal):
+    def open_menu(self):
         tween(self.bg, 'size', 8.0, 1, easing='out_bounce')
         tween(self.opt_start, 'size', 2.0, 1, easing='out_bounce')
         tween(self.opt_quit, 'size', 2.0, 1, easing='out_bounce')

@@ -7,6 +7,10 @@ class StartGame:
     pass
 
 @dataclass
+class OpenMenu:
+    pass
+
+@dataclass
 class MovementStart:
     scene: object
     colors: dict
