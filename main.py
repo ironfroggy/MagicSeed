@@ -601,6 +601,7 @@ class ParticleSystem(System):
             position = V(random()*12 - 6, random()*12 - 6)
             s = Particle(position=position)
             s.opacity = 0
+            s.size = 0
             ev.scene.add(s)
             cls.sparkles.append(s)
 
@@ -616,6 +617,7 @@ class ParticleSystem(System):
         s.layer = 100
         cls.t.tween(s, 'opacity', 0, 0.5, easing='linear')
         cls.t.tween(s, 'size', 2.5, 0.5, easing='linear')
+        delay(0.5, lambda: setattr(s, 'size', 0))
         if heading:
             cls.t.tween(s, 'position', heading, 0.5, easing='linear')
 
