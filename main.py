@@ -21,6 +21,7 @@ from timer import Timers, delay, repeat, cancel
 from tweening import Tweener, TweenSystem, tween
 from renderer import CustomRenderer
 from text import Text
+from menu import MenuSystem
 
 V = ppb.Vector
 
@@ -182,10 +183,20 @@ def chime(t, signal):
 
 class TickSystem(System):
     callbacks = []
+    game_started = False
     
     @classmethod
     def call_later(self, seconds, func):
         self.callbacks.append((time() + seconds, func))
+    
+    @classmethod
+    def on_start_game(cls, ev, signal):
+        cls.callbacks = []
+        cls.game_started = True
+    
+    @classmethod
+    def on_player_death(cls, ev, signal):
+        cls.game_started = False
 
     @classmethod
     def on_idle(self, update, signal):
@@ -203,6 +214,9 @@ class TickSystem(System):
 
     @classmethod
     def on_button_pressed(cls, ev, signal):
+        if not cls.game_started:
+            return
+
         x = round(ev.position.x)
         y = round(ev.position.y)
 
@@ -216,6 +230,9 @@ class TickSystem(System):
 
     @classmethod
     def on_button_released(cls, ev, signal):
+        if not cls.game_started:
+            return
+
         x = round(ev.position.x)
         y = round(ev.position.y)
         lx, ly = cls.last_click
@@ -261,10 +278,17 @@ class Grid:
 
     def __hash__(self):
         return hash(id(self))
+    
+    def on_start_game(self, ev, signal):
+        t = Tweener()
+        ev.scene.add(t)
+        for x in range(-2, 3):
+            for y in range(-2, 3):
+                seed = GRID[x, y]
+                seed.drop(t, x, y)
+        t.when_done(lambda: self.find_matches(signal))
 
     def on_scene_started(self, ev, signal):
-        print(1)
-        # TODO: Find out if there is a better way to do this
         self.scene = ev.scene
         self.find_matches(signal)
 
@@ -414,12 +438,21 @@ class Player(ppb.sprites.Sprite):
     image = ppb.Image("resources/ANGELA.png")
     size = 4.0
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    @property
+    def hp(self):
+        return self._hp
+    
+    @hp.setter
+    def hp(self, value):
+        self._hp = value
+        self.hp_text.text = str(value)
+        self.hp_bar.set_value(value)
+    
+    def on_start_game(self, ev, signal):
+        self.hp = 10
 
     def on_scene_started(self, ev, signal):
-        self.hp = 10
-        self.hp_text = Text(str(self.hp), self.position + V(0, -3))
+        self.hp_text = Text('', self.position + V(0, -3))
         self.hp_text.scene = ev.scene
         self.hp_text.setup()
 
@@ -431,11 +464,17 @@ class Player(ppb.sprites.Sprite):
         )
         ev.scene.add(self.hp_bar)
 
+        self.hp = 10
+    
+    def on_player_death(self, ev, signal):
+        self.hp = 10
+
     def on_damage_dealt(self, ev, signal):
         if ev.target == 'player':
             self.hp -= ev.dmg
-            self.hp_text.text = str(self.hp)
-            self.hp_bar.set_value(self.hp)
+
+            if self.hp <= 0:
+                signal(PlayerDeath(self))
 
 
 class Monster(ppb.sprites.Sprite):
@@ -455,6 +494,9 @@ class Monster(ppb.sprites.Sprite):
     
     def attack(self, signal):
         signal(DamageDealt('player', 1))
+    
+    def on_start_game(self, ev, signal):
+        self.hp = 10
 
     def on_idle(self, ev, signal):
         if self.shake:
@@ -528,6 +570,7 @@ class EffectedImage:
 class Particle(ppb.sprites.Sprite):
     base_image = ppb.Image("resources/sparkle1.png")
     opacity = 128
+    opacity_mode = 'add'
     color = COLOR_WHITE
     size = 2
     rotation = 0
@@ -677,6 +720,7 @@ ppb.run(
     basic_systems=(CustomRenderer, Updater, EventPoller, SoundController, AssetLoadingSystem),
     systems=[
         TickSystem,
+        MenuSystem,
         MonsterManager,
         TweenSystem,
         Timers,
@@ -684,4 +728,6 @@ ppb.run(
         ScoreBoard,
     ],
     resolution=(1280, 720),
+    window_title='✨Seed Magic✨',
+    target_frame_rate=60,
 )

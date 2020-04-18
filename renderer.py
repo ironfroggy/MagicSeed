@@ -24,12 +24,14 @@ import sdl2.ext
 
 class CustomRenderer(Renderer):
     last_opacity = 255
+    last_opacity_mode = 'blend'
     last_color = (255, 255, 255)
 
     def prepare_resource(self, game_object):
         texture = super().prepare_resource(game_object)
         if texture:
             opacity = getattr(game_object, 'opacity', 255)
+            opacity_mode = getattr(game_object, 'opacity_mode', 'blend')
             color = getattr(game_object, 'color', (255, 255, 255))
 
             if opacity != self.last_opacity:
@@ -37,17 +39,21 @@ class CustomRenderer(Renderer):
                     SDL_SetTextureAlphaMod, texture.inner, opacity,
                     _check_error=lambda rv: rv < 0
                 )
-                if opacity < 255:
+                self.last_opacity = opacity
+            
+            if opacity_mode != self.last_opacity_mode:
+                if opacity_mode == 'add':
                     sdl_call(
                         SDL_SetTextureBlendMode, texture.inner, SDL_BLENDMODE_ADD,
                         _check_error=lambda rv: rv < 0
                     )
-                else:
+                elif opacity_mode == 'blend':
                     sdl_call(
                         SDL_SetTextureBlendMode, texture.inner, SDL_BLENDMODE_BLEND,
                         _check_error=lambda rv: rv < 0
                     )
-                self.last_opacity = opacity
+                else:
+                    raise ValueError(f"Support modes for translucent sprites are 'add' or 'blend', not '{opacity_mode}'.")
             
             if color != self.last_color:
                 sdl_call(
@@ -83,8 +89,8 @@ class CustomRenderer(Renderer):
         dest_rect = SDL_Rect(
             x=int(center.x - win_w / 2),
             y=int(center.y - win_h / 2),
-            w=win_w,
-            h=win_h,
+            w=int(win_w),
+            h=int(win_h),
         )
 
         return src_rect, dest_rect, ctypes.c_double(-game_object.rotation)
