@@ -34,7 +34,10 @@ COLOR_RED = (255, 0, 0)
 COLOR_DARKRED = (255, 0, 0)
 COLOR_YELLOW = (255, 255, 0)
 COLOR_BLUE = (0, 0, 255)
+COLOR_VIOLET = (255, 128, 255)
 COLOR_WHITE = (255, 255, 255)
+COLOR_BLACK = (0, 0, 0)
+COLOR_NEARBLACK = (64, 64, 64)
 COLORS = (
     COLOR_GREEN,
     COLOR_RED,
@@ -43,17 +46,18 @@ COLORS = (
     COLOR_WHITE,
 )
 
+SEED_CORRUPTED = -1
 SEED_GREEN = 1
 SEED_RED = 2
 SEED_YELLOW = 3
 SEED_BLUE = 4
-SEED_WHITE = 5
+SEED_VIOLET = 5
 SEED_COLORS = {
     SEED_GREEN: COLOR_GREEN,
     SEED_RED: COLOR_RED,
     SEED_YELLOW: COLOR_YELLOW,
     SEED_BLUE: COLOR_BLUE,
-    SEED_WHITE: COLOR_WHITE,
+    SEED_VIOLET: COLOR_VIOLET,
 }
 
 # Images loaded for each color
@@ -62,7 +66,8 @@ SEED_IMAGES = {
     SEED_RED: ppb.Image("resources/seed1.png"),
     SEED_YELLOW: ppb.Image("resources/seed2.png"),
     SEED_BLUE: ppb.Image("resources/seed5.png"),
-    SEED_WHITE: ppb.Image("resources/seed4.png"),
+    SEED_VIOLET: ppb.Image("resources/seed4.png"),
+    SEED_CORRUPTED: ppb.Image("resources/seed0.png"),
 }
 
 SOUND_SWAP = ppb.Sound("resources/sound/swap.wav")
@@ -109,19 +114,34 @@ class Sparkler:
 
     def burst(self, duration, color, source=None, target=None):
         if target is None:
-            left, top = -2, 2
-            right, bottom = 2, -2
+            tleft, ttop = -2, 2
+            tright, tbottom = 2, -2
+        elif isinstance(target, ppb.Vector):
+            tleft, ttop = target
+            tright, tbottom = target
         else:
-            left, top = target[0]
-            right, bottom = target[1]
+            tleft, ttop = target[0]
+            tright, tbottom = target[1]
+
         if source is None:
-            source = V(0, 0)
+            sleft, stop = -2, 2
+            sright, sbottom = 2, -2
+        elif isinstance(source, ppb.Vector):
+            sleft, stop = source
+            sright, sbottom = source
+        else:
+            sleft, stop = source[0]
+            sright, sbottom = source[1]
+
         step = duration / 100
         for i in range(int(100 * duration)):
-            x = left + random() * (right - left)
-            y = bottom + random() * (top - bottom)
-            pos = self.position + V(x, y)
-            delay(i * step, lambda pos=pos: ParticleSystem.spawn(self.position + source, color, pos))
+            tx = tleft + random() * (tright - tleft)
+            ty = tbottom + random() * (ttop - tbottom)
+            sx = sleft + random() * (sright - sleft)
+            sy = sbottom + random() * (stop - sbottom)
+            spos = self.position + V(sx, sy)
+            tpos = self.position + V(tx, ty)
+            delay(i * step, lambda spos=spos, tpos=tpos: ParticleSystem.spawn(spos, color, tpos))
 
 
 class Seed(ppb.BaseSprite):
@@ -131,9 +151,26 @@ class Seed(ppb.BaseSprite):
         super().__init__(*args, **kwargs)
         self.x = int(self.position.x)
         self.y = int(self.position.y)
+        self.is_corrupt = False
         self.is_free = False
+        self.color = COLOR_WHITE
+    
+    def on_seed_corruption(self, ev, signal):
+        if self.x == ev.x and self.y == ev.y:
+            self.is_corrupt = True
+            tween(self, 'color', COLOR_NEARBLACK, 1.0, easing='out_quad')
+            tween(self, 'size', 0.8, 1.0, easing='out_quad')
+            signal(MovementDone())
+    
+    @property
+    def seed_type(self):
+        if self.is_corrupt:
+            return -1
+        else:
+            return self.seed_color
     
     def free(self):
+        """Remove the seed from the grid."""
         try:
             del GRID[self.x, self.y]
         except KeyError:
@@ -147,6 +184,8 @@ class Seed(ppb.BaseSprite):
         self.y = y
 
         color = choice(list(SEED_COLORS.keys()))
+        self.color = COLOR_WHITE
+        self.is_corrupt = False
         self.seed_color = color
         self.image = SEED_IMAGES[color]
         self.size = 0.0
@@ -158,7 +197,10 @@ class Seed(ppb.BaseSprite):
         t.tween(self, 'position', V(self.x, self.y), 1 + random()*0.25, easing='out_bounce')
 
     def spark(self):
-        color = SEED_COLORS[self.seed_color]
+        if self.is_corrupt:
+            color = COLOR_BLACK
+        else:
+            color = SEED_COLORS[self.seed_color]
         ParticleSystem.spawn(self.position, color)
 
     def sparkle(self, seconds):
@@ -190,7 +232,7 @@ def BlueSeed(*args, **kwargs):
     return Seed(*args, **kwargs)
 
 def WhiteSeed(*args, **kwargs):
-    kwargs['seed_color'] = SEED_WHITE
+    kwargs['seed_color'] = SEED_VIOLET
     kwargs['image'] = SEED_IMAGES[kwargs['seed_color']]
     return Seed(*args, **kwargs)
 
@@ -321,7 +363,7 @@ class TickSystem(System):
         if tweener.is_tweening:
             @tweener.when_done
             def on_tweening_done():
-                signal(MovementDone(ev.scene))
+                signal(MovementDone())
             ev.scene.add(tweener)
         
         cls.last_click = None
@@ -356,6 +398,8 @@ class Grid:
         try:
             return GRID[(x, y)]
         except KeyError:
+            if args:
+                return args[0]
             raise GridCellMissing(x, y)
     
     def on_start_game(self, ev, signal):
@@ -369,7 +413,7 @@ class Grid:
 
     def on_scene_started(self, ev, signal):
         self.scene = ev.scene
-        # self.find_matches(signal)
+        repeat(3, lambda: signal(SeedCorruption(randint(-2, 2), randint(-2, 2))))
 
     def on_movement_done(self, ev, signal):
         self.find_matches(signal)
@@ -388,16 +432,16 @@ class Grid:
         seed5 = self.get(x, y + 4, None)
 
         # Find a simple 3-match
-        if all((seed1, seed2, seed3)) and seed1.seed_color == seed2.seed_color == seed3.seed_color:
+        if all((seed1, seed2, seed3)) and seed1.seed_type == seed2.seed_type == seed3.seed_type:
             for seed in (seed1, seed2, seed3):
                 seeds.add(seed)
             points += 250
             # Extend to a 4-match...
-            if seed4 and seed3.seed_color == seed4.seed_color:
+            if seed4 and seed3.seed_type == seed4.seed_type:
                 seeds.add(seed4)
                 points += 250 # 500 total for match
                 # Extend to a 5-match...
-                if seed5 and seed4.seed_color == seed5.seed_color:
+                if seed5 and seed4.seed_type == seed5.seed_type:
                     seeds.add(seed5)
                     points += 500 # 1000 total for match
 
@@ -408,16 +452,16 @@ class Grid:
         seed5 = self.get(x + 4, y, None)
 
         # Find a simple 3-match
-        if all((seed1, seed2, seed3)) and seed1.seed_color == seed2.seed_color == seed3.seed_color:
+        if all((seed1, seed2, seed3)) and seed1.seed_type == seed2.seed_type == seed3.seed_type:
             for seed in (seed1, seed2, seed3):
                 seeds.add(seed)
             points += 250
             # Extend to a 4-match...
-            if seed4 and seed3.seed_color == seed4.seed_color:
+            if seed4 and seed3.seed_type == seed4.seed_type:
                 seeds.add(seed4)
                 points += 250
                 # Extend to a 5-match...
-                if seed5 and seed4.seed_color == seed5.seed_color:
+                if seed5 and seed4.seed_type == seed5.seed_type:
                     seeds.add(seed5)
                     points += 500
         
@@ -453,11 +497,13 @@ class Grid:
             # Add up the matched seeds for each color and animate them accordingly
             d = 0.5
             for seed in seeds:
-                colors[seed.seed_color] += 1
-                if seed.seed_color == SEED_GREEN:
+                colors[seed.seed_type] += 1
+                if seed.seed_type == SEED_GREEN:
                     dest = POS_PLAYER
-                elif seed.seed_color == SEED_YELLOW:
+                elif seed.seed_type == SEED_YELLOW:
                     dest = POS_PLAYER
+                elif seed.seed_type == SEED_CORRUPTED:
+                    dest = POS_ENEMY
                 else:
                     dest = POS_ENEMY
                 seed.free()
@@ -474,11 +520,14 @@ class Grid:
             dmg = 0
             shield = 0
             heal = 0
+            corruption = 0
             for c, v in colors.items():
                 if c == SEED_GREEN:
                     heal = max(heal, v)
                 elif c == SEED_YELLOW:
                     shield = max(shield, v)
+                elif c == SEED_CORRUPTED:
+                    corruption = v
                 else:
                     dmg += v
 
@@ -489,10 +538,19 @@ class Grid:
             delay(d, _)
 
             def _():
+                enemy = first(self.scene.get(tag='enemy'))
+
+                if corruption:
+                    enemy.sparkler.burst(1, COLOR_BLACK,
+                        source=(V(-2, -2), V(2, 2)),
+                        target=V(0, 0),
+                    )
+                    delay(1, lambda: signal(EnemyAttack(enemy, corruption)))
+
                 if dmg:
                     signal(DamageDealt('monster', dmg))
-                    enemy = first(self.scene.get(tag='enemy'))
-                    enemy.sparkler.burst(0.25, SEED_COLORS[choice(list(colors))])
+                    i = choice([c for c in colors if c >= 0])
+                    enemy.sparkler.burst(0.25, SEED_COLORS[i])
 
                 if heal:
                     player = first(self.scene.get(tag='player'))
@@ -547,7 +605,7 @@ class Grid:
                             seed = seeds.pop()
                             seed.drop(tweener, x, 2 - i)
 
-                tweener.when_done(lambda: signal(MovementDone(self.scene)))
+                tweener.when_done(lambda: signal(MovementDone()))
 
             tweener.on_tweening_done = on_tweening_done 
             self.scene.add(tweener)
@@ -608,14 +666,13 @@ class Player(ppb.sprites.Sprite):
         self.sparkler = Sparkler(self.position)
     
     def on_player_death(self, ev, signal):
-        self.hp = 10
+        pass
 
     def on_damage_dealt(self, ev, signal):
         if ev.target == 'player':
             self.shield -= ev.dmg
             if self.shield < 0:
                 self.hp += self.shield
-                print(self.hp, self.shield)
                 self.shield = 0
                 if self.hp < 0:
                     self.hp = 0
@@ -645,12 +702,16 @@ class Monster(ppb.sprites.Sprite):
         self.hp_bar.set_value(value)
     
     def plan_attack(self):
-        self.next_attack = time() + randint(3, 6)
+        pass
+        # self.next_attack = time() + randint(3, 6)
     
-    def attack(self, signal):
+    def on_enemy_attack(self, ev, signal):
+        self.attack(ev.dmg, signal)
+    
+    def attack(self, dmg, signal):
         tween(self, 'position', self.position - V(1, 0), 0.1, easing='in_quad')
         tween(self, 'position', self.position, 0.1, delay=0.1, easing='out_quad')
-        delay(0.1, lambda: signal(DamageDealt('player', randint(1, 2))))
+        delay(0.1, lambda: signal(DamageDealt('player', dmg)))
         self.plan_attack()
     
     def on_start_game(self, ev, signal):
@@ -767,9 +828,14 @@ class ParticleSystem(System):
     def spawn(cls, pos, color, heading=None):
         s = cls.sparkles[cls.index]
         cls.index = (cls.index + 1) % cls.size
+        if color == COLOR_BLACK:
+            s.opacity_mode = 'blend'
+            s.opacity = 255
+        else:
+            s.opacity_mode = 'add'
+            s.opacity = 128
         s.color = color
         s.position = pos
-        s.opacity = 128
         s.rotation = randint(0, 260)
         s.size = 1.5
         s.layer = 100

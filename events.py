@@ -17,11 +17,21 @@ class MovementStart:
 
 @dataclass
 class MovementDone:
-    scene: object
+    pass
 
 @dataclass
 class TweeningDone:
     tweener: Tweener
+
+@dataclass
+class SeedCorruption:
+    x: int
+    y: int
+
+@dataclass
+class EnemyAttack:
+    enemy: object
+    dmg: int
 
 @dataclass
 class DamageDealt:

@@ -34,14 +34,15 @@ class CustomRenderer(Renderer):
             opacity_mode = getattr(game_object, 'opacity_mode', 'blend')
             color = getattr(game_object, 'color', (255, 255, 255))
 
-            if opacity != self.last_opacity:
+            if True: # opacity != self.last_opacity:
                 sdl_call(
                     SDL_SetTextureAlphaMod, texture.inner, opacity,
                     _check_error=lambda rv: rv < 0
                 )
                 self.last_opacity = opacity
             
-            if opacity_mode != self.last_opacity_mode:
+            if True: #opacity_mode != self.last_opacity_mode:
+                self.last_opacity_mode = opacity_mode
                 if opacity_mode == 'add':
                     sdl_call(
                         SDL_SetTextureBlendMode, texture.inner, SDL_BLENDMODE_ADD,
@@ -55,7 +56,7 @@ class CustomRenderer(Renderer):
                 else:
                     raise ValueError(f"Support modes for translucent sprites are 'add' or 'blend', not '{opacity_mode}'.")
             
-            if color != self.last_color:
+            if True: # color != self.last_color:
                 sdl_call(
                     SDL_SetTextureColorMod, texture.inner, color[0], color[1], color[2],
                     _check_error=lambda rv: rv < 0

@@ -18,6 +18,24 @@ def vlerp(v1, v2, t):
         v1.y + t * (v2.y - v1.y),
     )
 
+def tlerp(t1, t2, t):
+    assert len(t1) == len(t2)
+    return tuple(
+        lerp(i1, i2, t)
+        for (i1, i2) in zip(t1, t2)
+    )
+
+def lerp(a, b, t):
+    if isinstance(a, tuple):
+        value = tlerp(a, b, t)
+    elif isinstance(a, ppb.Vector):
+        value = vlerp(a, b, t)
+    elif isinstance(a, int):
+        value = ilerp(a, b, t)
+    else:
+        value = flerp(a, b, t)
+    return value
+
 
 @dataclass
 class Tween:
@@ -90,12 +108,7 @@ class Tweener:
             tr = (t - tween.start_time) / (tween.end_time - tween.start_time)
             tr = min(1.0, max(0.0, tr))
             tr = getattr(easing, tween.easing)(tr)
-            if isinstance(tween.end_value, ppb.Vector):
-                value = vlerp(tween.start_value, tween.end_value, tr)
-            if isinstance(tween.end_value, int):
-                value = ilerp(tween.start_value, tween.end_value, tr)
-            else:
-                value = flerp(tween.start_value, tween.end_value, tr)
+            value = lerp(tween.start_value, tween.end_value, tr)
             setattr(tween.obj, tween.attr, value)
             if tr >= 1.0:
                 clear.append(i)
