@@ -11,6 +11,12 @@ class OpenMenu:
     pass
 
 @dataclass
+class HoverSeed:
+    grid: object
+    x: int
+    y: int
+
+@dataclass
 class MovementStart:
     scene: object
     colors: dict
@@ -40,6 +46,10 @@ class DamageDealt:
 
 @dataclass
 class MonsterDeath:
+    monster: object
+
+@dataclass
+class MonsterSpawn:
     monster: object
 
 @dataclass

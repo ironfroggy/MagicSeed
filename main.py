@@ -67,7 +67,6 @@ SEED_IMAGES = {
     SEED_YELLOW: ppb.Image("resources/seed2.png"),
     SEED_BLUE: ppb.Image("resources/seed5.png"),
     SEED_VIOLET: ppb.Image("resources/seed4.png"),
-    SEED_CORRUPTED: ppb.Image("resources/seed0.png"),
 }
 
 SOUND_SWAP = ppb.Sound("resources/sound/swap.wav")
@@ -154,13 +153,28 @@ class Seed(ppb.BaseSprite):
         self.is_corrupt = False
         self.is_free = False
         self.color = COLOR_WHITE
+        self.sparkle_timer = None
+    
+    def on_hover_seed(self, ev, signal):
+        if not ev.grid.frozen and self.x == ev.x and self.y == ev.y:
+            if not self.is_corrupt:
+                self.size = 1.1
+            else:
+                self.size = 0.9
+        else:
+            if not self.is_corrupt:
+                self.size = 1.0
+            else:
+                self.size = 0.8
     
     def on_seed_corruption(self, ev, signal):
         if self.x == ev.x and self.y == ev.y:
-            self.is_corrupt = True
-            tween(self, 'color', COLOR_NEARBLACK, 1.0, easing='out_quad')
-            tween(self, 'size', 0.8, 1.0, easing='out_quad')
-            signal(MovementDone())
+            if not self.is_corrupt:
+                self.is_corrupt = True
+                tween(self, 'color', COLOR_NEARBLACK, 1.0, easing='out_quad')
+                tween(self, 'size', 0.8, 1.0, easing='out_quad')
+                self.sparkle(1.0, rate=0.1)
+                signal(MovementDone())
     
     @property
     def seed_type(self):
@@ -183,11 +197,10 @@ class Seed(ppb.BaseSprite):
         self.x = x
         self.y = y
 
-        color = choice(list(SEED_COLORS.keys()))
         self.color = COLOR_WHITE
         self.is_corrupt = False
-        self.seed_color = color
-        self.image = SEED_IMAGES[color]
+        self.seed_color = choice(list(SEED_COLORS.keys()))
+        self.image = SEED_IMAGES[self.seed_color]
         self.size = 0.0
         self.position = V(self.x, self.y + 4)
 
@@ -199,16 +212,20 @@ class Seed(ppb.BaseSprite):
     def spark(self):
         if self.is_corrupt:
             color = COLOR_BLACK
+            ParticleSystem.spawn(self.position, color, tsize=1.0)
         else:
             color = SEED_COLORS[self.seed_color]
-        ParticleSystem.spawn(self.position, color)
+            ParticleSystem.spawn(self.position, color)
 
-    def sparkle(self, seconds):
-        self.sparkle_timer = repeat(0.01, self.spark)
+    def sparkle(self, seconds, rate=0.01):
+        self.stop_sparkle()
+        self.sparkle_timer = repeat(rate, self.spark)
         delay(seconds, self.stop_sparkle)
     
     def stop_sparkle(self):
-        cancel(self.sparkle_timer)
+        if self.sparkle_timer:
+            cancel(self.sparkle_timer)
+            self.sparkle_timer = None
 
 
 def GreenSeed(*args, **kwargs):
@@ -295,34 +312,97 @@ class TickSystem(System):
     def on_key_released(cls, ev, signal):
         if ev.key == k.Escape:
             signal(OpenMenu())
+
+
+@dataclass
+class GridCellMissing(Exception):
+    x: int
+    y: int
+
+@dataclass
+class GridCellOutOfBounds(Exception):
+    x: int
+    y: int
+
+
+@dataclass
+class Grid:
+    scene: ppb.BaseScene = None
+    size: float = 0
+    frozen: bool = True
+
+    def __hash__(self):
+        return hash(id(self))
     
+    def get(self, x, y, *args):
+        if x < -2 or x > 2 or y < -2 or y > 2:
+            if args:
+                return args[0]
+            else:
+                raise GridCellOutOfBounds(x, y)
+        try:
+            return GRID[(x, y)]
+        except KeyError:
+            if args:
+                return args[0]
+            raise GridCellMissing(x, y)
+    
+    def send_seed_corrupt(self, signal):
+        if not self.frozen:
+            signal(SeedCorruption(randint(-2, 2), randint(-2, 2)))
+    
+    def on_start_game(self, ev, signal):
+        self.frozen = False
+        t = Tweener()
+        ev.scene.add(t)
+        for x in range(-2, 3):
+            for y in range(-2, 3):
+                seed = GRID[x, y]
+                seed.drop(t, x, y)
+        t.when_done(lambda: self.find_matches(signal))
+
+    def on_scene_started(self, ev, signal):
+        self.scene = ev.scene
+        repeat(3, lambda: self.send_seed_corrupt(signal))
+
+    def on_movement_done(self, ev, signal):
+        self.find_matches(signal)
+    
+    def on_monster_death(self, ev, signal):
+        self.frozen = True
+    
+    def on_monster_spawn(self, evn, signal):
+        self.frozen = False
+
     last_click = (0, 0)
     last_seed = None
 
-    @classmethod
-    def on_button_pressed(cls, ev, signal):
-        if not cls.game_started:
+    def on_button_pressed(self, ev, signal):
+        if self.frozen:
             return
 
         x = round(ev.position.x)
         y = round(ev.position.y)
 
-        cls.last_click = (x, y)
-        cls.last_seed = GRID.get((x, y))
+        self.last_click = (x, y)
+        self.last_seed = self.get(x, y, None)
     
-    @classmethod
-    def on_mouse_motion(cls, ev, signal):
-        if cls.last_seed:
-            cls.last_seed.position = ev.position
+    def on_mouse_motion(self, ev, signal):
+        if self.last_seed:
+            self.last_seed.position = ev.position
+        else:
+            x = round(ev.position.x)
+            y = round(ev.position.y)
+            signal(HoverSeed(self, x, y))
 
-    @classmethod
-    def on_button_released(cls, ev, signal):
-        if not cls.game_started:
+
+    def on_button_released(self, ev, signal):
+        if self.frozen or not self.last_click:
             return
 
         x = round(ev.position.x)
         y = round(ev.position.y)
-        lx, ly = cls.last_click
+        lx, ly = self.last_click
 
         if x == lx and y != ly:
             if ly - 2 == y:
@@ -357,8 +437,8 @@ class TickSystem(System):
             tweener.tween(seed2, 'position', V(x, y), 0.25)
 
             signal(PlaySound(SOUND_SWAP))
-        elif cls.last_seed:
-            tweener.tween(cls.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
+        elif self.last_seed:
+            tweener.tween(self.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
 
         if tweener.is_tweening:
             @tweener.when_done
@@ -366,57 +446,8 @@ class TickSystem(System):
                 signal(MovementDone())
             ev.scene.add(tweener)
         
-        cls.last_click = None
-        cls.last_seed = None
-
-
-@dataclass
-class GridCellMissing(Exception):
-    x: int
-    y: int
-
-@dataclass
-class GridCellOutOfBounds(Exception):
-    x: int
-    y: int
-
-
-@dataclass
-class Grid:
-    scene: ppb.BaseScene = None
-    size: float = 0
-
-    def __hash__(self):
-        return hash(id(self))
-    
-    def get(self, x, y, *args):
-        if x < -2 or x > 2 or y < -2 or y > 2:
-            if args:
-                return args[0]
-            else:
-                raise GridCellOutOfBounds(x, y)
-        try:
-            return GRID[(x, y)]
-        except KeyError:
-            if args:
-                return args[0]
-            raise GridCellMissing(x, y)
-    
-    def on_start_game(self, ev, signal):
-        t = Tweener()
-        ev.scene.add(t)
-        for x in range(-2, 3):
-            for y in range(-2, 3):
-                seed = GRID[x, y]
-                seed.drop(t, x, y)
-        t.when_done(lambda: self.find_matches(signal))
-
-    def on_scene_started(self, ev, signal):
-        self.scene = ev.scene
-        repeat(3, lambda: signal(SeedCorruption(randint(-2, 2), randint(-2, 2))))
-
-    def on_movement_done(self, ev, signal):
-        self.find_matches(signal)
+        self.last_click = None
+        self.last_seed = None
     
     def find_one_match(self, x, y):
         seeds = set()
@@ -468,6 +499,9 @@ class Grid:
         return seeds, points
 
     def find_matches(self, signal):
+        if self.frozen:
+            return
+
         tweener = Tweener()
         seeds = set()
         colors = defaultdict(int)
@@ -496,40 +530,42 @@ class Grid:
         if seeds:
             # Add up the matched seeds for each color and animate them accordingly
             d = 0.5
-            for seed in seeds:
-                colors[seed.seed_type] += 1
-                if seed.seed_type == SEED_GREEN:
-                    dest = POS_PLAYER
-                elif seed.seed_type == SEED_YELLOW:
-                    dest = POS_PLAYER
-                elif seed.seed_type == SEED_CORRUPTED:
-                    dest = POS_ENEMY
-                else:
-                    dest = POS_ENEMY
-                seed.free()
-                t = 0.1 * dist(seed.position, dest)
-                seed.layer = 10
-                delay((1.0 - d), lambda seed=seed: seed.sparkle(t))
-                tweener.tween(seed, 'size', 1.1, 0.1, easing='out_quad', delay=1.0 - d - 0.1)
-                tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - d)
-                tweener.tween(seed, 'size', 0.0, t, easing='in_quad', delay=1.0 - d)
-
-                d *= 0.75
-            
             # Calculate damage and spell effects
             dmg = 0
             shield = 0
             heal = 0
             corruption = 0
-            for c, v in colors.items():
-                if c == SEED_GREEN:
-                    heal = max(heal, v)
-                elif c == SEED_YELLOW:
-                    shield = max(shield, v)
-                elif c == SEED_CORRUPTED:
-                    corruption = v
+            for seed in seeds:
+                attack = False
+                colors[seed.seed_type] += 1
+                if seed.seed_type == SEED_GREEN:
+                    dest = POS_PLAYER
+                    heal += 1
+                elif seed.seed_type == SEED_YELLOW:
+                    dest = POS_PLAYER
+                    shield += 1
+                elif seed.seed_type == SEED_CORRUPTED:
+                    dest = POS_ENEMY
+                    corruption += 1
                 else:
-                    dmg += v
+                    dest = POS_ENEMY
+                    dmg += 1
+                    attack = True
+                    
+                t = 0.1 * dist(seed.position, dest)
+
+                seed.free()
+                seed.layer = 10
+
+                delay((1.0 - d), lambda seed=seed: seed.sparkle(t))
+                tweener.tween(seed, 'size', 1.1, 0.1, easing='out_quad', delay=1.0 - d - 0.1)
+                tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - d)
+                tweener.tween(seed, 'size', 0.0, t, easing='in_quad', delay=1.0 - d)
+
+                if attack:
+                    delay(t + (1.0 - d), lambda: signal(DamageDealt('monster', 1)))
+
+                d *= 0.5
 
             signal(MovementStart(self.scene, colors))
 
@@ -548,7 +584,7 @@ class Grid:
                     delay(1, lambda: signal(EnemyAttack(enemy, corruption)))
 
                 if dmg:
-                    signal(DamageDealt('monster', dmg))
+                    # signal(DamageDealt('monster', dmg))
                     i = choice([c for c in colors if c >= 0])
                     enemy.sparkler.burst(0.25, SEED_COLORS[i])
 
@@ -690,6 +726,7 @@ class Monster(ppb.sprites.Sprite):
     size = 4.0
     shake = False
     next_attack = float('inf')
+    opacity = 255
 
     @property
     def hp(self):
@@ -697,6 +734,7 @@ class Monster(ppb.sprites.Sprite):
     
     @hp.setter
     def hp(self, value):
+        value = max(0, value)
         self._hp = value
         self.hp_text.text = str(value)
         self.hp_bar.set_value(value)
@@ -755,6 +793,8 @@ class Monster(ppb.sprites.Sprite):
 
     def on_damage_dealt(self, ev, signal):
         if ev.target == 'monster':
+            tween(self, 'position', self.position + V(0.25, 0), 0.1, easing='in_quad')
+            tween(self, 'position', self.position, 0.1, delay=0.1, easing='out_quad')
             self.hp -= ev.dmg
 
             if self.hp <= 0:
@@ -768,11 +808,21 @@ class MonsterManager(System):
     #     self.scene = ev.scene
 
     def on_monster_death(self, ev, signal):
-        # t = Tweener()
-        # self.scene.add(t)
-        tween(ev.monster, 'position', POS_ENEMY + V(4, 0), 1.0, easing='in_quad')
-        tween(ev.monster, 'position', POS_ENEMY, 1.0, delay=1, easing='out_quad')
+        # tween(ev.monster, 'position', POS_ENEMY + V(4, 0), 1.0, easing='in_quad')
+        # tween(ev.monster, 'position', POS_ENEMY, 1.0, delay=1, easing='out_quad')
+        # ev.monster.hp = 10
+
+        tween(ev.monster, 'size', ev.monster.size * 0.75, 3.0, easing='in_quad')
+        tween(ev.monster, 'opacity', 0, 3.0, easing='out_bounce')
+
+        delay(5, lambda: signal(MonsterSpawn(ev.monster)))
+    
+    def on_monster_spawn(self, ev, signal):
+        ev.monster.position = POS_ENEMY + V(4, 0)
+        ev.monster.opacity = 255
+        ev.monster.size = 4.0
         ev.monster.hp = 10
+        tween(ev.monster, 'position', POS_ENEMY, 1.0)
 
 
 def proxy_method(attr, name):
@@ -825,7 +875,7 @@ class ParticleSystem(System):
             cls.sparkles.append(s)
 
     @classmethod
-    def spawn(cls, pos, color, heading=None):
+    def spawn(cls, pos, color, heading=None, tsize=2.5):
         s = cls.sparkles[cls.index]
         cls.index = (cls.index + 1) % cls.size
         if color == COLOR_BLACK:
@@ -840,7 +890,7 @@ class ParticleSystem(System):
         s.size = 1.5
         s.layer = 100
         cls.t.tween(s, 'opacity', 0, 0.5, easing='linear')
-        cls.t.tween(s, 'size', 2.5, 0.5, easing='linear')
+        cls.t.tween(s, 'size', tsize, 0.5, easing='linear')
         delay(0.5, lambda: setattr(s, 'size', 0))
         if heading:
             cls.t.tween(s, 'position', heading, 0.5, easing='linear')
