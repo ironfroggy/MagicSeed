@@ -76,6 +76,46 @@ SOUND_HURT2 = ppb.Sound("resources/sound/hurt2.wav")
 SOUND_HURT3 = ppb.Sound("resources/sound/hurt3.wav")
 SOUND_HURT_SET = (SOUND_HURT1, SOUND_HURT2, SOUND_HURT3)
 
+ENEMIES = [
+    {
+        "image": ppb.Image("resources/monster_ant.png"),
+        "hp": 3,
+    },
+    {
+        "image": ppb.Image("resources/monster_spider.png"),
+        "hp": 4,
+    },
+    {
+        "image": ppb.Image("resources/monster_snake.png"),
+        "hp": 6,
+    },
+    {
+        "image": ppb.Image("resources/monster_snapblossum.png"),
+        "hp": 8,
+    },
+    {
+        "image": ppb.Image("resources/monster_5.png"),
+        "hp": 8,
+    },
+    {
+        "image": ppb.Image("resources/monster_6.png"),
+        "hp": 12,
+    },
+    {
+        "image": ppb.Image("resources/monster_7.png"),
+        "hp": 10,
+    },
+    {
+        "image": ppb.Image("resources/monster_8.png"),
+        "hp": 15,
+    },
+    {
+        "image": ppb.Image("resources/monster_9.png"),
+        "hp": 20,
+        "deathtime": 5.0,
+    },
+]
+
 POS_PLAYER = V(-7, -1)
 POS_ENEMY = V(7, -1)
 
@@ -728,7 +768,7 @@ class Player(ppb.sprites.Sprite):
 
 
 class Monster(ppb.sprites.Sprite):
-    image = ppb.Image("resources/MONSTER_SNAKE.png")
+    image = ENEMIES[0]['image']
     size = 4.0
     shake = False
     next_attack = float('inf')
@@ -759,7 +799,8 @@ class Monster(ppb.sprites.Sprite):
         self.plan_attack()
     
     def on_start_game(self, ev, signal):
-        self.hp = 10
+        self.hp = ENEMIES[0]["hp"]
+        self.hp_bar.set_max(self.hp)
         self.plan_attack()
 
     def on_idle(self, ev, signal):
@@ -794,11 +835,10 @@ class Monster(ppb.sprites.Sprite):
         )
         ev.scene.add(self.hp_bar)
 
-        self.hp = 10
         self.sparkler = Sparkler(self.position)
 
     def on_damage_dealt(self, ev, signal):
-        if ev.target == 'monster':
+        if ev.target == 'monster' and self.hp:
             tween(self, 'position', self.position + V(0.25, 0), 0.1, easing='in_quad')
             tween(self, 'position', self.position, 0.1, delay=0.1, easing='out_quad')
             self.hp -= ev.dmg
@@ -810,24 +850,32 @@ class Monster(ppb.sprites.Sprite):
 
 
 class MonsterManager(System):
-    # def on_scene_started(self, ev, signal):
-    #     self.scene = ev.scene
+
+    def on_scene_started(self, ev, signal):
+        self.monster_index = 0
+        self.danger = 1.0
 
     def on_monster_death(self, ev, signal):
-        # tween(ev.monster, 'position', POS_ENEMY + V(4, 0), 1.0, easing='in_quad')
-        # tween(ev.monster, 'position', POS_ENEMY, 1.0, delay=1, easing='out_quad')
-        # ev.monster.hp = 10
+        t = ENEMIES[self.monster_index].get('deathtime', 2.0)
+        tween(ev.monster, 'size', ev.monster.size * 0.75, t, easing='in_quad')
+        tween(ev.monster, 'opacity', 0, t, easing='out_bounce')
 
-        tween(ev.monster, 'size', ev.monster.size * 0.75, 3.0, easing='in_quad')
-        tween(ev.monster, 'opacity', 0, 3.0, easing='out_bounce')
-
-        delay(5, lambda: signal(MonsterSpawn(ev.monster)))
+        delay(t, lambda: signal(MonsterSpawn(ev.monster)))
     
     def on_monster_spawn(self, ev, signal):
+        self.monster_index += 1
+        if self.monster_index >= len(ENEMIES):
+            self.monster_index
+            self.danger += 0.1
+
+        ev.monster.image = ENEMIES[self.monster_index]['image']
+        ev.monster.hp = int(ENEMIES[self.monster_index]['hp'] * self.danger)
+        ev.monster.hp_bar.max = ev.monster.hp
+
         ev.monster.position = POS_ENEMY + V(4, 0)
         ev.monster.opacity = 255
         ev.monster.size = 4.0
-        ev.monster.hp = 10
+
         tween(ev.monster, 'position', POS_ENEMY, 1.0)
 
 
@@ -963,7 +1011,12 @@ class Bar:
 
         self.set_value(10)
     
+    def set_max(self, new_max):
+        self.max = new_max
+        self.set_value(self.value)
+    
     def set_value(self, value):
+        self.value = value
         if value == 0:
             p = 0
         else:
