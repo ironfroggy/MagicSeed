@@ -865,7 +865,7 @@ class MonsterManager(System):
     def on_monster_spawn(self, ev, signal):
         self.monster_index += 1
         if self.monster_index >= len(ENEMIES):
-            self.monster_index
+            self.monster_index = 0
             self.danger += 0.1
 
         ev.monster.image = ENEMIES[self.monster_index]['image']
