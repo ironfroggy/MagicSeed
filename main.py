@@ -163,8 +163,8 @@ class Sparkler:
             tright, tbottom = target[1]
 
         if source is None:
-            sleft, stop = -2, 2
-            sright, sbottom = 2, -2
+            sleft, stop = 0, 0
+            sright, sbottom = 0, 0
         elif isinstance(source, ppb.Vector):
             sleft, stop = source
             sright, sbottom = source
@@ -214,7 +214,7 @@ class Seed(ppb.BaseSprite):
                 tween(self, 'color', COLOR_NEARBLACK, 1.0, easing='out_quad')
                 tween(self, 'size', 0.8, 1.0, easing='out_quad')
                 self.sparkle(1.0, rate=0.1)
-                signal(MovementDone())
+                delay(1.0, lambda: signal(SeedCorruptionComplete()))
     
     @property
     def seed_type(self):
@@ -404,9 +404,20 @@ class Grid:
     def on_scene_started(self, ev, signal):
         self.scene = ev.scene
         repeat(3, lambda: self.send_seed_corrupt(signal))
+    
+    def on_movement_start(self, ev, signal):
+        self.frozen = True
+        self.waiting_for_movement = True
 
     def on_movement_done(self, ev, signal):
-        self.find_matches(signal)
+        if self.waiting_for_movement:
+            self.waiting_for_movement = False
+            self.frozen = False
+            self.find_matches(signal)
+        
+    def on_seed_corruption_complete(self, ev, signal):
+        if not self.frozen:
+            self.find_matches(signal)
     
     def on_monster_death(self, ev, signal):
         self.frozen = True
@@ -483,6 +494,7 @@ class Grid:
             tweener.tween(seed2, 'position', V(x, y), 0.25)
 
             signal(PlaySound(SOUND_SWAP))
+            signal(MovementStart())
         elif self.last_seed:
             tweener.tween(self.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
 
@@ -613,7 +625,7 @@ class Grid:
 
                 d *= 0.5
 
-            signal(MovementStart(self.scene, colors))
+            signal(MovementStart(colors))
 
             def _():
                 chime(t + 1.0 - d, signal)
@@ -660,6 +672,7 @@ class Grid:
                 tweener = Tweener()
                 self.scene.add(tweener)
 
+                # Drop new seeds at the top of each column with gaps
                 for x in range(-2, 3):
 
                     # Collect all the seeds in a column and drop them
@@ -682,6 +695,7 @@ class Grid:
                                     GRID[seed.x, seed.y] = seed
                                     tweener.tween(seed, 'position', ppb.Vector(seed.x, seed.y), 1 + random()*0.25, delay=0.5, easing='out_bounce')
 
+                    # Add new seeds at the top
                     for i in range(gap):
                         if seeds:
                             seed = seeds.pop()
@@ -743,7 +757,7 @@ class Player(ppb.sprites.Sprite):
         ev.scene.add(self.shield_bar)
 
         self.hp = 10
-        self.shield = 10
+        self.shield = 0
 
         self.sparkler = Sparkler(self.position)
     
@@ -790,7 +804,8 @@ class Monster(ppb.sprites.Sprite):
         # self.next_attack = time() + randint(3, 6)
     
     def on_enemy_attack(self, ev, signal):
-        self.attack(ev.dmg, signal)
+        if self.hp:
+            self.attack(ev.dmg, signal)
     
     def attack(self, dmg, signal):
         tween(self, 'position', self.position - V(1, 0), 0.1, easing='in_quad')

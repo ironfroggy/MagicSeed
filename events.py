@@ -26,8 +26,7 @@ class HoverSeed:
 
 @dataclass
 class MovementStart:
-    scene: object
-    colors: dict
+    colors: dict = None
 
 @dataclass
 class MovementDone:
@@ -41,6 +40,10 @@ class TweeningDone:
 class SeedCorruption:
     x: int
     y: int
+
+@dataclass
+class SeedCorruptionComplete:
+    pass
 
 @dataclass
 class EnemyAttack:
