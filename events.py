@@ -24,6 +24,12 @@ class HoverSeed:
     x: int
     y: int
 
+class SeedHeld:
+    pass
+
+class SeedReleased:
+    pass
+
 @dataclass
 class MovementStart:
     colors: dict = None

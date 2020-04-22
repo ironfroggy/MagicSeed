@@ -80,38 +80,47 @@ ENEMIES = [
     {
         "image": ppb.Image("resources/monster_ant.png"),
         "hp": 3,
+        "strength": 1,
     },
     {
         "image": ppb.Image("resources/monster_spider.png"),
         "hp": 4,
+        "strength": 1,
     },
     {
         "image": ppb.Image("resources/monster_snake.png"),
         "hp": 6,
+        "strength": 2,
     },
     {
         "image": ppb.Image("resources/monster_snapblossum.png"),
         "hp": 8,
+        "strength": 3,
     },
     {
         "image": ppb.Image("resources/monster_5.png"),
-        "hp": 8,
+        "hp": 10,
+        "strength": 2,
     },
     {
         "image": ppb.Image("resources/monster_6.png"),
-        "hp": 12,
+        "hp": 10,
+        "strength": 3,
     },
     {
         "image": ppb.Image("resources/monster_7.png"),
-        "hp": 10,
+        "hp": 12,
+        "strength": 2,
     },
     {
         "image": ppb.Image("resources/monster_8.png"),
         "hp": 15,
+        "strength": 4,
     },
     {
         "image": ppb.Image("resources/monster_9.png"),
         "hp": 20,
+        "strength": 5,
         "deathtime": 5.0,
     },
 ]
@@ -370,6 +379,7 @@ class Grid:
     scene: ppb.BaseScene = None
     size: float = 0
     frozen: bool = True
+    seed_held: bool = False
 
     def __hash__(self):
         return hash(id(self))
@@ -413,10 +423,19 @@ class Grid:
         if self.waiting_for_movement:
             self.waiting_for_movement = False
             self.frozen = False
-            self.find_matches(signal)
-        
-    def on_seed_corruption_complete(self, ev, signal):
+            if not self.seed_held:
+                self.find_matches(signal)
+    
+    def on_seed_held(self, ev, signal):
+        self.seed_held = True
+
+    def on_seed_released(self, ev, signal):
+        self.seed_held = False
         if not self.frozen:
+            self.find_matches(signal)
+
+    def on_seed_corruption_complete(self, ev, signal):
+        if not self.frozen and not self.seed_held:
             self.find_matches(signal)
     
     def on_monster_death(self, ev, signal):
@@ -443,6 +462,8 @@ class Grid:
 
         self.last_click = (x, y)
         self.last_seed = self.get(x, y, None)
+
+        signal(SeedHeld())
     
     def on_mouse_motion(self, ev, signal):
         if self.last_seed:
@@ -456,6 +477,8 @@ class Grid:
     def on_button_released(self, ev, signal):
         if self.frozen or not self.last_click:
             return
+
+        signal(SeedReleased())
 
         x = round(ev.position.x)
         y = round(ev.position.y)
@@ -805,7 +828,7 @@ class Monster(ppb.sprites.Sprite):
     
     def on_enemy_attack(self, ev, signal):
         if self.hp:
-            self.attack(ev.dmg, signal)
+            self.attack(self.strength + ev.dmg, signal)
     
     def attack(self, dmg, signal):
         tween(self, 'position', self.position - V(1, 0), 0.1, easing='in_quad')
@@ -816,6 +839,7 @@ class Monster(ppb.sprites.Sprite):
     def on_start_game(self, ev, signal):
         self.hp = ENEMIES[0]["hp"]
         self.hp_bar.set_max(self.hp)
+        self.strength = ENEMIES[0]["strength"]
         self.plan_attack()
 
     def on_idle(self, ev, signal):
@@ -886,6 +910,7 @@ class MonsterManager(System):
         ev.monster.image = ENEMIES[self.monster_index]['image']
         ev.monster.hp = int(ENEMIES[self.monster_index]['hp'] * self.danger)
         ev.monster.hp_bar.max = ev.monster.hp
+        ev.monster.strength = int(ENEMIES[self.monster_index]['strength'] * self.danger)
 
         ev.monster.position = POS_ENEMY + V(4, 0)
         ev.monster.opacity = 255
