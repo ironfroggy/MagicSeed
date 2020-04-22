@@ -311,7 +311,7 @@ class TickSystem(System):
     @classmethod
     def on_key_released(cls, ev, signal):
         if ev.key == k.Escape:
-            signal(OpenMenu())
+            signal(ToggleMenu())
 
 
 @dataclass
@@ -372,6 +372,12 @@ class Grid:
         self.frozen = True
     
     def on_monster_spawn(self, evn, signal):
+        self.frozen = False
+
+    def on_open_menu(self, ev, signal):
+        self.frozen = True
+    
+    def on_close_menu(self, evn, signal):
         self.frozen = False
 
     last_click = (0, 0)

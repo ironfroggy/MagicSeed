@@ -11,6 +11,14 @@ class OpenMenu:
     pass
 
 @dataclass
+class CloseMenu:
+    pass
+
+@dataclass
+class ToggleMenu:
+    pass
+
+@dataclass
 class HoverSeed:
     grid: object
     x: int
