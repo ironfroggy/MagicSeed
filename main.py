@@ -79,11 +79,13 @@ SOUND_HURT_SET = (SOUND_HURT1, SOUND_HURT2, SOUND_HURT3)
 ENEMIES = [
     {
         "image": ppb.Image("resources/monster_ant.png"),
+        "size": 1.0,
         "hp": 3,
         "strength": 1,
     },
     {
         "image": ppb.Image("resources/monster_spider.png"),
+        "size": 9.0,
         "hp": 4,
         "strength": 1,
     },
@@ -410,6 +412,7 @@ class Grid:
                 seed = GRID[x, y]
                 seed.drop(t, x, y)
         t.when_done(lambda: self.find_matches(signal))
+        signal(ScoreSet(0))
 
     def on_scene_started(self, ev, signal):
         self.scene = ev.scene
@@ -423,8 +426,8 @@ class Grid:
         if self.waiting_for_movement:
             self.waiting_for_movement = False
             self.frozen = False
-            if not self.seed_held:
-                self.find_matches(signal)
+            # if not self.seed_held:
+            #     self.find_matches(signal)
     
     def on_seed_held(self, ev, signal):
         self.seed_held = True
@@ -432,7 +435,14 @@ class Grid:
     def on_seed_released(self, ev, signal):
         self.seed_held = False
         if not self.frozen:
-            self.find_matches(signal)
+            # This signals a MovementStart that won't be published until
+            # *after* this method is done, leaving the grid frozen.
+            seeds = self.find_matches(signal)
+            if not seeds:
+                # reverse the swap that just happened
+                x1, y1, x2, y2 = self.last_swap
+                self.swap_seeds(x2, y2, x1, y1)
+            signal(MovementDone())
 
     def on_seed_corruption_complete(self, ev, signal):
         if not self.frozen and not self.seed_held:
@@ -505,16 +515,7 @@ class Grid:
         nx = abs(lx-x) == 1
         ny = abs(ly-y) == 1
         if not missed and (nx or ny) and not (nx and ny):
-            seed1 = GRID[x, y]
-            seed2 = GRID[lx, ly]
-            GRID[x, y] = seed2
-            GRID[lx, ly] = seed1
-            seed2.x = x
-            seed2.y = y
-            seed1.x = lx
-            seed1.y = ly
-            tweener.tween(seed1, 'position', V(lx, ly), 0.25)
-            tweener.tween(seed2, 'position', V(x, y), 0.25)
+            self.swap_seeds(x, y, lx, ly)
 
             signal(PlaySound(SOUND_SWAP))
             signal(MovementStart())
@@ -529,6 +530,22 @@ class Grid:
         
         self.last_click = None
         self.last_seed = None
+
+    last_swap = (0, 0, 0, 0)
+    def swap_seeds(self, x, y, lx, ly):
+        # swap seed1 and seed2
+        seed1 = GRID[x, y]
+        seed2 = GRID[lx, ly]
+        GRID[x, y] = seed2
+        GRID[lx, ly] = seed1
+        seed2.x = x
+        seed2.y = y
+        seed1.x = lx
+        seed1.y = ly
+        tween(seed1, 'position', V(lx, ly), 0.25)
+        tween(seed2, 'position', V(x, y), 0.25)
+
+        self.last_swap = (x, y, lx, ly)
     
     def find_one_match(self, x, y):
         seeds = set()
@@ -728,6 +745,8 @@ class Grid:
 
             tweener.on_tweening_done = on_tweening_done 
             self.scene.add(tweener)
+        
+        return seeds
 
 
 class Player(ppb.sprites.Sprite):
@@ -889,10 +908,11 @@ class Monster(ppb.sprites.Sprite):
 
 
 class MonsterManager(System):
-
-    def on_scene_started(self, ev, signal):
+    
+    def on_start_game(self, ev, signal):
         self.monster_index = 0
         self.danger = 1.0
+        self.spawn_monster(first(ev.scene.get(tag='enemy')))
 
     def on_monster_death(self, ev, signal):
         t = ENEMIES[self.monster_index].get('deathtime', 2.0)
@@ -906,17 +926,20 @@ class MonsterManager(System):
         if self.monster_index >= len(ENEMIES):
             self.monster_index = 0
             self.danger += 0.1
+        
+        self.spawn_monster(ev.monster)
+    
+    def spawn_monster(self, monster):
+        monster.image = ENEMIES[self.monster_index]['image']
+        monster.hp = int(ENEMIES[self.monster_index]['hp'] * self.danger)
+        monster.hp_bar.max = monster.hp
+        monster.strength = int(ENEMIES[self.monster_index]['strength'] * self.danger)
 
-        ev.monster.image = ENEMIES[self.monster_index]['image']
-        ev.monster.hp = int(ENEMIES[self.monster_index]['hp'] * self.danger)
-        ev.monster.hp_bar.max = ev.monster.hp
-        ev.monster.strength = int(ENEMIES[self.monster_index]['strength'] * self.danger)
+        monster.position = POS_ENEMY + V(4, 0)
+        monster.opacity = 255
+        monster.size = ENEMIES[self.monster_index].get('size', 4.0)
 
-        ev.monster.position = POS_ENEMY + V(4, 0)
-        ev.monster.opacity = 255
-        ev.monster.size = 4.0
-
-        tween(ev.monster, 'position', POS_ENEMY, 1.0)
+        tween(monster, 'position', POS_ENEMY, 1.0)
 
 
 def proxy_method(attr, name):
@@ -990,11 +1013,6 @@ class ParticleSystem(System):
             cls.t.tween(s, 'position', heading, 0.5, easing='linear')
 
 
-@dataclass
-class ScorePoints:
-    points: int
-
-
 class ScoreBoard(System):
     
     @classmethod
@@ -1006,6 +1024,11 @@ class ScoreBoard(System):
     @classmethod
     def on_score_points(cls, ev, signal):
         cls.score += ev.points
+        cls.text.text = str(cls.score)
+    
+    @classmethod
+    def on_score_set(cls, ev, signal):
+        cls.score = ev.points
         cls.text.text = str(cls.score)
 
 

@@ -72,3 +72,11 @@ class MonsterSpawn:
 @dataclass
 class PlayerDeath:
     player: object
+
+@dataclass
+class ScorePoints:
+    points: int
+
+@dataclass
+class ScoreSet:
+    points: int
