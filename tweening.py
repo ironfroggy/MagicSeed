@@ -65,7 +65,8 @@ class Tweener:
 
     size = 0
 
-    def __init__(self):
+    def __init__(self, name=None):
+        self.name = name or f"tweener-{id(self)}"
         self.tweens = []
         self.callbacks = []
         # self.used = False
@@ -116,11 +117,11 @@ class Tweener:
         for i in reversed(clear):
             del self.tweens[i]
         
-        if not self.tweens: # self.used and not self.tweens and not self.done:
-            # self.done = True
-            for func in self.callbacks:
-                func()
+        if not self.is_tweening:
+            callbacks = self.callbacks[:]
             self.callbacks.clear()
+            for func in callbacks:
+                func()
 
 
 class TweenSystem(System):

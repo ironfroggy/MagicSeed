@@ -59,6 +59,14 @@ SEED_COLORS = {
     SEED_BLUE: COLOR_BLUE,
     SEED_VIOLET: COLOR_VIOLET,
 }
+SEED_NAMES = {
+    SEED_GREEN: "green",
+    SEED_RED: "red",
+    SEED_YELLOW: "yellow",
+    SEED_BLUE: "blue",
+    SEED_VIOLET: "purple",
+    SEED_CORRUPTED: "corrupted",
+}
 
 # Images loaded for each color
 SEED_IMAGES = {
@@ -205,6 +213,9 @@ class Seed(ppb.BaseSprite):
         self.is_free = False
         self.color = COLOR_WHITE
         self.sparkle_timer = None
+    
+    def __repr__(self):
+        return f"<Seed ({self.x, self.y}) {SEED_NAMES[self.seed_type]}>"
     
     def on_hover_seed(self, ev, signal):
         if not ev.grid.frozen and self.x == ev.x and self.y == ev.y:
@@ -401,22 +412,30 @@ class Grid:
     
     def send_seed_corrupt(self, signal):
         if not self.frozen:
-            signal(SeedCorruption(randint(-2, 2), randint(-2, 2)))
+            if self.tweener.is_tweening:
+                self.tweener.when_done(lambda: self.send_seed_corrupt(signal))
+            else:
+                signal(SeedCorruption(randint(-2, 2), randint(-2, 2)))
+                delay(3, lambda: self.send_seed_corrupt(signal))
+        else:
+            delay(0.25, lambda: self.send_seed_corrupt(signal))
+    
+    def on_scene_started(self, ev, signal):
+        self.scene = ev.scene
+        delay(3,
+            lambda: self.send_seed_corrupt(signal)
+        )
+        self.tweener = Tweener()
+        self.scene.add(self.tweener)
     
     def on_start_game(self, ev, signal):
         self.frozen = False
-        t = Tweener()
-        ev.scene.add(t)
         for x in range(-2, 3):
             for y in range(-2, 3):
                 seed = GRID[x, y]
-                seed.drop(t, x, y)
-        t.when_done(lambda: self.find_matches(signal))
+                seed.drop(self.tweener, x, y)
+        self.tweener.when_done(lambda: self.find_matches(signal))
         signal(ScoreSet(0))
-
-    def on_scene_started(self, ev, signal):
-        self.scene = ev.scene
-        repeat(3, lambda: self.send_seed_corrupt(signal))
     
     def on_movement_start(self, ev, signal):
         self.frozen = True
@@ -426,8 +445,7 @@ class Grid:
         if self.waiting_for_movement:
             self.waiting_for_movement = False
             self.frozen = False
-            # if not self.seed_held:
-            #     self.find_matches(signal)
+        self.find_matches(signal)
     
     def on_seed_held(self, ev, signal):
         self.seed_held = True
@@ -483,9 +501,16 @@ class Grid:
             y = round(ev.position.y)
             signal(HoverSeed(self, x, y))
 
+    def return_seed(self, seed, x, y):
+        self.tweener.tween(seed, 'position', V(x, y), 0.25, easing='out_quad')
 
     def on_button_released(self, ev, signal):
-        if self.frozen or not self.last_click:
+        if self.frozen or not self.last_seed or self.tweener.is_tweening:
+            if self.last_seed:
+                lx, ly = self.last_click
+                self.return_seed(self.last_seed, lx, ly)
+                self.last_seed = None
+                self.last_click = None
             return
 
         signal(SeedReleased())
@@ -511,28 +536,35 @@ class Grid:
         if (lx, ly) not in GRID:
             missed = True
 
-        tweener = Tweener()
         nx = abs(lx-x) == 1
         ny = abs(ly-y) == 1
+
+        # If the seed was dropped in a cardinal direction to another seed,
+        # swap them, signal movement start, and play the swap sound.
         if not missed and (nx or ny) and not (nx and ny):
             self.swap_seeds(x, y, lx, ly)
 
             signal(PlaySound(SOUND_SWAP))
             signal(MovementStart())
+        
+        # Otherwise, if there is a last seed remembered, return to its original
+        # position.
         elif self.last_seed:
-            tweener.tween(self.last_seed, 'position', V(lx, ly), 0.25, easing='out_quad')
+            self.return_seed(self.last_seed, lx, ly)
+        
+        # TODO... why would there not be a last seed here?
 
-        if tweener.is_tweening:
-            @tweener.when_done
+        if self.tweener.is_tweening:
+            @self.tweener.when_done
             def on_tweening_done():
                 signal(MovementDone())
-            ev.scene.add(tweener)
         
         self.last_click = None
         self.last_seed = None
 
     last_swap = (0, 0, 0, 0)
     def swap_seeds(self, x, y, lx, ly):
+        # assert not self.tweener.is_tweening
         # swap seed1 and seed2
         seed1 = GRID[x, y]
         seed2 = GRID[lx, ly]
@@ -599,8 +631,9 @@ class Grid:
     def find_matches(self, signal):
         if self.frozen:
             return
+        if self.tweener.is_tweening:
+            self.tweener.when_done(lambda: self.find_matches(signal))
 
-        tweener = Tweener()
         seeds = set()
         colors = defaultdict(int)
         points = 0
@@ -656,9 +689,9 @@ class Grid:
                 seed.layer = 10
 
                 delay((1.0 - d), lambda seed=seed: seed.sparkle(t))
-                tweener.tween(seed, 'size', 1.1, 0.1, easing='out_quad', delay=1.0 - d - 0.1)
-                tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - d)
-                tweener.tween(seed, 'size', 0.0, t, easing='in_quad', delay=1.0 - d)
+                self.tweener.tween(seed, 'size', 1.1, 0.1, easing='out_quad', delay=1.0 - d - 0.1)
+                self.tweener.tween(seed, 'position', dest, t, easing='out_quad', delay=1.0 - d)
+                self.tweener.tween(seed, 'size', 0.0, t, easing='in_quad', delay=1.0 - d)
 
                 if attack:
                     delay(t + (1.0 - d), lambda: signal(DamageDealt('monster', 1)))
@@ -704,13 +737,10 @@ class Grid:
 
             delay(1.0-d+t, _)
 
-            @tweener.when_done
+            @self.tweener.when_done
             def on_tweening_done():
                 for seed in seeds:
                     seed.layer = 1
-
-                tweener = Tweener()
-                self.scene.add(tweener)
 
                 # Drop new seeds at the top of each column with gaps
                 for x in range(-2, 3):
@@ -726,25 +756,21 @@ class Grid:
                         for y in range(-2, 3):
                             if (x, y) not in GRID:
                                 gap += 1
-                                # print("gap", x, y)
                             else:
                                 if gap > 0:
                                     seed = GRID[x, y]
                                     del GRID[x, y]
                                     seed.y -= gap
                                     GRID[seed.x, seed.y] = seed
-                                    tweener.tween(seed, 'position', ppb.Vector(seed.x, seed.y), 1 + random()*0.25, delay=0.5, easing='out_bounce')
+                                    self.tweener.tween(seed, 'position', ppb.Vector(seed.x, seed.y), 1 + random()*0.25, delay=0.5, easing='out_bounce')
 
                     # Add new seeds at the top
                     for i in range(gap):
                         if seeds:
                             seed = seeds.pop()
-                            seed.drop(tweener, x, 2 - i)
+                            seed.drop(self.tweener, x, 2 - i)
 
-                tweener.when_done(lambda: signal(MovementDone()))
-
-            tweener.on_tweening_done = on_tweening_done 
-            self.scene.add(tweener)
+                self.tweener.when_done(lambda: signal(MovementDone()))
         
         return seeds
 
@@ -1096,7 +1122,7 @@ def setup(scene):
         for y in range(-2, 3):
             seed_class = choice(SEEDS)
             seed = seed_class(position=V(x, y))
-            scene.add(seed)
+            scene.add(seed, tags=['seed'])
             GRID[x, y] = seed
     
     player = Player(position=POS_PLAYER)
