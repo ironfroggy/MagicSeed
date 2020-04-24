@@ -377,14 +377,16 @@ class TickSystem(System):
 
 
 @dataclass
-class GridCellMissing(Exception):
+class GridCellError(Exception):
     x: int
     y: int
 
-@dataclass
-class GridCellOutOfBounds(Exception):
-    x: int
-    y: int
+
+class GridCellMissing(GridCellError):
+    pass
+
+class GridCellOutOfBounds(GridCellError):
+    pass
 
 
 @dataclass
@@ -415,7 +417,26 @@ class Grid:
             if self.tweener.is_tweening:
                 self.tweener.when_done(lambda: self.send_seed_corrupt(signal))
             else:
-                signal(SeedCorruption(randint(-2, 2), randint(-2, 2)))
+                x = randint(-2, 2)
+                y = randint(-2, 2)
+                seeds = self.scene.get(tag='seed')
+                corrupt = [seed for seed in seeds if seed.is_corrupt]
+                if corrupt:
+                    candidates = []
+                    for seed in corrupt:
+                        for ox, oy in [(1,0), (-1,0), (0,1), (0,-1)]:
+                            try:
+                                neighbor = self.get(seed.x + ox, seed.y + oy)
+                            except GridCellError:
+                                continue
+                            else:
+                                if not neighbor.is_corrupt:
+                                    candidates.append(neighbor)
+                    if candidates:
+                        seed = choice(candidates)
+                        x = seed.x
+                        y = seed.y
+                signal(SeedCorruption(x, y))
                 delay(3, lambda: self.send_seed_corrupt(signal))
         else:
             delay(0.25, lambda: self.send_seed_corrupt(signal))
