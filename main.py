@@ -89,48 +89,48 @@ ENEMIES = [
         "image": ppb.Image("resources/monster_ant.png"),
         "size": 1.0,
         "hp": 3,
-        "strength": 1,
+        "strength": 0,
     },
     {
         "image": ppb.Image("resources/monster_spider.png"),
         "size": 9.0,
         "hp": 4,
-        "strength": 1,
+        "strength": 0,
     },
     {
         "image": ppb.Image("resources/monster_snake.png"),
         "hp": 6,
-        "strength": 2,
+        "strength": 1,
     },
     {
         "image": ppb.Image("resources/monster_snapblossum.png"),
         "hp": 8,
-        "strength": 3,
+        "strength": 2,
     },
     {
         "image": ppb.Image("resources/monster_5.png"),
         "hp": 10,
-        "strength": 2,
+        "strength": 1,
     },
     {
         "image": ppb.Image("resources/monster_6.png"),
         "hp": 10,
-        "strength": 3,
+        "strength": 2,
     },
     {
         "image": ppb.Image("resources/monster_7.png"),
         "hp": 12,
-        "strength": 2,
+        "strength": 1,
     },
     {
         "image": ppb.Image("resources/monster_8.png"),
         "hp": 15,
-        "strength": 4,
+        "strength": 2,
     },
     {
         "image": ppb.Image("resources/monster_9.png"),
         "hp": 20,
-        "strength": 5,
+        "strength": 3,
         "deathtime": 5.0,
     },
 ]
@@ -153,9 +153,9 @@ class Sparkler:
     position: ppb.Vector
     sparkle_timer = None
 
-    def spark(self, color):
-        x = -2.0 + random() * 4.0
-        y = -2.0 + random() * 4.0
+    def spark(self, color, area=4.0):
+        x = -area/2.0 + random() * area
+        y = -area/2.0 + random() * area
         pos = self.position + V(x, y)
         ParticleSystem.spawn(self.position, color, pos)
 
@@ -411,6 +411,9 @@ class Grid:
             if args:
                 return args[0]
             raise GridCellMissing(x, y)
+
+    def return_seed(self, seed, x, y):
+        self.tweener.tween(seed, 'position', V(x, y), 0.25, easing='out_quad')
     
     def send_seed_corrupt(self, signal):
         if not self.frozen:
@@ -503,6 +506,8 @@ class Grid:
     last_seed = None
 
     def on_button_pressed(self, ev, signal):
+        assert not self.last_seed
+        assert self.last_click == (0, 0), (self.last_click, self.last_seed)
         if self.frozen:
             return
 
@@ -522,16 +527,13 @@ class Grid:
             y = round(ev.position.y)
             signal(HoverSeed(self, x, y))
 
-    def return_seed(self, seed, x, y):
-        self.tweener.tween(seed, 'position', V(x, y), 0.25, easing='out_quad')
-
     def on_button_released(self, ev, signal):
         if self.frozen or not self.last_seed or self.tweener.is_tweening:
             if self.last_seed:
                 lx, ly = self.last_click
                 self.return_seed(self.last_seed, lx, ly)
                 self.last_seed = None
-                self.last_click = None
+                self.last_click = (0, 0)
             return
 
         signal(SeedReleased())
@@ -580,25 +582,29 @@ class Grid:
             def on_tweening_done():
                 signal(MovementDone())
         
-        self.last_click = None
+        self.last_click = (0, 0)
         self.last_seed = None
 
     last_swap = (0, 0, 0, 0)
     def swap_seeds(self, x, y, lx, ly):
         # assert not self.tweener.is_tweening
         # swap seed1 and seed2
-        seed1 = GRID[x, y]
-        seed2 = GRID[lx, ly]
-        GRID[x, y] = seed2
-        GRID[lx, ly] = seed1
-        seed2.x = x
-        seed2.y = y
-        seed1.x = lx
-        seed1.y = ly
-        tween(seed1, 'position', V(lx, ly), 0.25)
-        tween(seed2, 'position', V(x, y), 0.25)
+        try:
+            seed1 = GRID[x, y]
+            seed2 = GRID[lx, ly]
+        except KeyError:
+            return
+        else:
+            GRID[x, y] = seed2
+            GRID[lx, ly] = seed1
+            seed2.x = x
+            seed2.y = y
+            seed1.x = lx
+            seed1.y = ly
+            tween(seed1, 'position', V(lx, ly), 0.25)
+            tween(seed2, 'position', V(x, y), 0.25)
 
-        self.last_swap = (x, y, lx, ly)
+            self.last_swap = (x, y, lx, ly)
     
     def find_one_match(self, x, y):
         seeds = set()
@@ -654,6 +660,7 @@ class Grid:
             return
         if self.tweener.is_tweening:
             self.tweener.when_done(lambda: self.find_matches(signal))
+            return
 
         seeds = set()
         colors = defaultdict(int)
@@ -872,7 +879,7 @@ class Player(ppb.sprites.Sprite):
 
 class Monster(ppb.sprites.Sprite):
     image = ENEMIES[0]['image']
-    size = 4.0
+    size = ENEMIES[0]['size']
     shake = False
     next_attack = float('inf')
     opacity = 255
@@ -942,6 +949,16 @@ class Monster(ppb.sprites.Sprite):
 
         self.sparkler = Sparkler(self.position)
 
+        repeat(self.smoke_rate, lambda: self.smoke())
+    
+    smoke_rate = 0.1
+    smoke_enabled = True
+
+    def smoke(self):
+        self.sparkler.position = self.position
+        if self.smoke_enabled:
+            self.sparkler.spark(COLOR_BLACK, area=2.0)
+
     def on_damage_dealt(self, ev, signal):
         if ev.target == 'monster' and self.hp:
             tween(self, 'position', self.position + V(0.25, 0), 0.1, easing='in_quad')
@@ -963,10 +980,11 @@ class MonsterManager(System):
 
     def on_monster_death(self, ev, signal):
         t = ENEMIES[self.monster_index].get('deathtime', 2.0)
-        tween(ev.monster, 'size', ev.monster.size * 0.75, t, easing='in_quad')
-        tween(ev.monster, 'opacity', 0, t, easing='out_bounce')
 
-        delay(t, lambda: signal(MonsterSpawn(ev.monster)))
+        delay(0.5, lambda: setattr(ev.monster, 'smoke_enabled', False))
+        delay(1.0, lambda: tween(ev.monster, 'position', POS_ENEMY + V(4, 0), 2.0, easing='out_quad'))
+        delay(3.0, lambda: setattr(ev.monster, 'smoke_enabled', True))
+        delay(3.0, lambda: signal(MonsterSpawn(ev.monster)))
     
     def on_monster_spawn(self, ev, signal):
         self.monster_index += 1
