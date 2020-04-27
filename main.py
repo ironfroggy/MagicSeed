@@ -280,7 +280,7 @@ class Seed(ppb.BaseSprite):
         t.tween(self, 'position', V(self.x, self.y), 1 + random()*0.25, easing='out_bounce')
     
     def return_to_cell(self):
-        tween(seed, 'position', V(self.x, self.y), 0.25, easing='out_quad')
+        tween(self, 'position', V(self.x, self.y), 0.25, easing='out_quad')
 
     def spark(self):
         if self.is_corrupt:
