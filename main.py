@@ -15,7 +15,6 @@ from ppb.systems import EventPoller
 from ppb.systems import SoundController
 from ppb.systems import Updater
 
-import easing
 from events import *
 from timer import Timers, delay, repeat, cancel
 from tweening import Tweener, TweenSystem, tween
@@ -149,6 +148,12 @@ def first(iterator):
 
 
 @dataclass
+class Rect:
+    lower: ppb.Vector
+    upper: ppb.Vector
+
+
+@dataclass
 class Sparkler:
     position: ppb.Vector
     sparkle_timer = None
@@ -160,10 +165,13 @@ class Sparkler:
         ParticleSystem.spawn(self.position, color, pos)
 
     def sparkle(self, seconds, color):
+        self.start_sparkle(color)
+        delay(seconds, self.stop_sparkle)
+    
+    def start_sparkle(self, color):
         if self.sparkle_timer:
             self.stop_sparkle()
-        self.sparkle_timer = repeat(0.01, lambda: self.spark(color))
-        delay(seconds, self.stop_sparkle)
+            self.sparkle_timer = repeat(0.01, lambda: self.spark(color))
     
     def stop_sparkle(self):
         if self.sparkle_timer:
@@ -270,6 +278,9 @@ class Seed(ppb.BaseSprite):
 
         t.tween(self, 'size', 1.0, 0.25, delay=0.5)
         t.tween(self, 'position', V(self.x, self.y), 1 + random()*0.25, easing='out_bounce')
+    
+    def return_to_cell(self):
+        tween(seed, 'position', V(self.x, self.y), 0.25, easing='out_quad')
 
     def spark(self):
         if self.is_corrupt:
@@ -395,6 +406,7 @@ class Grid:
     size: float = 0
     frozen: bool = True
     seed_held: bool = False
+    last_seed: Seed = None
 
     def __hash__(self):
         return hash(id(self))
@@ -411,9 +423,6 @@ class Grid:
             if args:
                 return args[0]
             raise GridCellMissing(x, y)
-
-    def return_seed(self, seed, x, y):
-        self.tweener.tween(seed, 'position', V(x, y), 0.25, easing='out_quad')
     
     def send_seed_corrupt(self, signal):
         if not self.frozen:
@@ -502,19 +511,13 @@ class Grid:
     def on_close_menu(self, evn, signal):
         self.frozen = False
 
-    last_click = (0, 0)
-    last_seed = None
-
     def on_button_pressed(self, ev, signal):
-        assert not self.last_seed
-        assert self.last_click == (0, 0), (self.last_click, self.last_seed)
         if self.frozen:
             return
 
         x = round(ev.position.x)
         y = round(ev.position.y)
 
-        self.last_click = (x, y)
         self.last_seed = self.get(x, y, None)
 
         signal(SeedHeld())
@@ -530,17 +533,16 @@ class Grid:
     def on_button_released(self, ev, signal):
         if self.frozen or not self.last_seed or self.tweener.is_tweening:
             if self.last_seed:
-                lx, ly = self.last_click
-                self.return_seed(self.last_seed, lx, ly)
+                self.last_seed.return_to_cell()
                 self.last_seed = None
-                self.last_click = (0, 0)
             return
 
         signal(SeedReleased())
 
         x = round(ev.position.x)
         y = round(ev.position.y)
-        lx, ly = self.last_click
+        lx = self.last_seed.x
+        ly = self.last_seed.y
 
         if x == lx and y != ly:
             if ly - 2 == y:
@@ -573,7 +575,7 @@ class Grid:
         # Otherwise, if there is a last seed remembered, return to its original
         # position.
         elif self.last_seed:
-            self.return_seed(self.last_seed, lx, ly)
+            self.last_seed.return_to_cell()
         
         # TODO... why would there not be a last seed here?
 
@@ -581,8 +583,7 @@ class Grid:
             @self.tweener.when_done
             def on_tweening_done():
                 signal(MovementDone())
-        
-        self.last_click = (0, 0)
+
         self.last_seed = None
 
     last_swap = (0, 0, 0, 0)
